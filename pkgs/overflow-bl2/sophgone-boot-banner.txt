@@ -1,0 +1,22 @@
+                     _
+   _________  ____  / /_  ____ _____  ____  ___
+  / ___/ __ \/ __ \/ __ \/ __ `/ __ \/ __ \/ _ \
+ (__  ) /_/ / /_/ / / / / /_/ / /_/ / / / /  __/
+/____/\____/ .___/_/ /_/\__, /\____/_/ /_/\___/
+          /_/          /____/  %s edition
+
+  %s
+
+ .:::::::::::::::::::::::::::::::::::::::::::::::::::::::.
+ : =[ sophgone ]=  SG2000 %s  //  %s pwned! :
+ ':::::::::::::::::::::::::::::::::::::::::::::::::::::::'
+
+  | It's the first dual-architecture bootloader unlock!
+  | One file, two architectures, zero secure boot.
+
+  | @numinit greets: all Nix Vegas organizers and speakers,
+  | SoCal NixOS User Group, DC858, and Distractions, Inc.
+  | Find unfixable silicon bugs, be excellent to each other,
+  | and make reproducible builds of mask rom exploits:
+  | @out@
+

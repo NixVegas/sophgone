@@ -1,0 +1,184 @@
+{
+  "a53": {
+    "rom_base": 1073741824,
+    "bl2_base": 1074790400,
+    "stack_ceiling": 1075045696,
+    "bl2_total": 254976,
+    "spare_window": 1074987008,
+    "polyglot_word_off": 32,
+    "rv_stub_off": 352,
+    "aa_stub_off": 476,
+    "aa_body_off": 131072,
+    "rv_body_off": 163840,
+    "hijack": [
+      [
+        254328,
+        "launch"
+      ],
+      [
+        254392,
+        "launch"
+      ],
+      [
+        254408,
+        "launch"
+      ],
+      [
+        254472,
+        "launch"
+      ],
+      [
+        254552,
+        "launch"
+      ],
+      [
+        254600,
+        "launch"
+      ],
+      [
+        254632,
+        "launch"
+      ],
+      [
+        254648,
+        "launch"
+      ],
+      [
+        254656,
+        "launch"
+      ],
+      [
+        254680,
+        "launch"
+      ],
+      [
+        254712,
+        "launch"
+      ],
+      [
+        254728,
+        "launch"
+      ],
+      [
+        254744,
+        "launch"
+      ],
+      [
+        254760,
+        "launch"
+      ],
+      [
+        254776,
+        "launch"
+      ],
+      [
+        254792,
+        "launch"
+      ],
+      [
+        254800,
+        "launch"
+      ],
+      [
+        254824,
+        "launch"
+      ],
+      [
+        254856,
+        "launch"
+      ]
+    ],
+    "islands": [
+      [
+        246272,
+        70320128
+      ]
+    ],
+    "fill_value": 1075048448,
+    "fill_value_alias": 201584640,
+    "syms": {
+      "f_open": 1073803012,
+      "f_read": 1073804092,
+      "f_lseek": 1073804588,
+      "f_mount": 1073802896,
+      "load_image": 1073748348,
+      "fip_parse": 1073797888,
+      "launch_or_entry": 1073799200,
+      "bl2_entry": 1074790432,
+      "flush_dcache": 1073809312,
+      "inv_icache": 1073746080,
+      "sd_load": 1073764740,
+      "read_wrapper": 1073764600,
+      "sd_open_fip": 1073764452,
+      "fip_param": 1075023872,
+      "sd_ops": 1075048536,
+      "sd_ctx": 1075048532,
+      "fatfs_default": 1075047336,
+      "fil_default": 1075047920,
+      "uart_base": 68419584,
+      "printf": 1073746428
+    },
+    "abi": {
+      "f_open": "x0=FIL* x1=path x2=mode(byte) -> w0=FRESULT (0==FR_OK)",
+      "f_read": "x0=FIL* x1=buf w2=len x3=&bytes_read -> w0=FRESULT",
+      "f_lseek": "x0=FIL* x1=offset -> w0=FRESULT",
+      "load_image": "x0=dst w1=offset w2=size w3=media_hi -> w0=FRESULT; dispatch on media_id @0x4013E580"
+    }
+  },
+  "c906": {
+    "rom_base": 71401472,
+    "bl2_base": 201326592,
+    "stack_ceiling": 201581888,
+    "bl2_total": 254976,
+    "spare_window": 201523200,
+    "polyglot_word_off": 32,
+    "rv_stub_off": 352,
+    "aa_stub_off": 476,
+    "aa_body_off": 131072,
+    "rv_body_off": 163840,
+    "hijack": [
+      [
+        254728,
+        "word"
+      ]
+    ],
+    "islands": [
+      [
+        246320,
+        70320128
+      ],
+      [
+        246272,
+        70254592
+      ]
+    ],
+    "fill_value": 201326848,
+    "disk_read_ra_off": 254728,
+    "island_note": "SD/eMMC driver context base pointers, both smashed by the overflow and both read on the boot path before storage_init (0x0441C1C6) can re-enumerate: [0x3C230, 0x04310000]=SD host base *(0x0C03C230), [0x3C200, 0x04300000]=eMMC host base *(0x0C03C200). ROM never rewrites +0 (static .data), so we must.",
+    "launch_convention": "self-modifying-code: dcache_clean(0x04418258) + icache_flush(0x04418240) after any CPU code write (self-relocate, sophg.1 load), then jr; the ROM flushes its own BL2 load but not ours",
+    "syms": {
+      "f_open": 71448490,
+      "f_read": 71449290,
+      "f_lseek": null,
+      "storage_init": 71401926,
+      "storage_drain": 71402406,
+      "load_image": 71403712,
+      "fip_parse": 71444534,
+      "launch_or_entry": 201326624,
+      "icache_flush": 71402048,
+      "dcache_clean": 71402072,
+      "fip_param": 201560064,
+      "sd_ops": 201584672,
+      "fatfs_default": 201585648,
+      "read_wrapper": 71417800,
+      "fil_default": 201584048,
+      "uart_base": 68419584,
+      "printf": 71402556
+    },
+    "abi": {
+      "f_open": "a0=FIL* a1=path a2=mode -> a0=FRESULT (0==FR_OK)",
+      "f_read": "a0=FIL* a1=buf a2=len a3=&bytes_read -> a0=FRESULT",
+      "load_image": "a0=dst a1=offset a2=size a3=dev-index -> a0=FRESULT; media type from global @0x0C03E540"
+    }
+  }
+}

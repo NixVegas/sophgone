@@ -1,0 +1,32 @@
+--- a/lib/hang.c
++++ b/lib/hang.c
+@@ -11,6 +11,7 @@
+ #include <bootstage.h>
+ #include <hang.h>
+ #include <os.h>
++#include <cpu_func.h>
+ 
+ /**
+  * hang - stop processing by staying in an endless loop
+@@ -30,6 +31,21 @@
+ 	bootstage_error(BOOTSTAGE_ID_NEED_RESET);
+ 	if (IS_ENABLED(CONFIG_SANDBOX))
+ 		os_exit(1);
++
++	/* badge: reset rather than park. See pkgs/uboot-hang-reset.patch.
++	 * reset_cpu() is raw MMIO (no DM, no PSCI, no timers), so it works
++	 * from board_init_f with the driver model broken. The spin is a plain
++	 * loop because mdelay() needs a timer that may not exist yet. */
++	puts("### badge: resetting instead of hanging ###\n");
++	{
++		volatile unsigned long spin;
++
++		for (spin = 0; spin < 100000000UL; spin++)
++			;
++	}
++	reset_cpu();
++
++	/* Unreachable unless reset_cpu() itself fails. */
+ 	for (;;)
+ 		;
+ }

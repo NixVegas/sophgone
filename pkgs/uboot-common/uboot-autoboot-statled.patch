@@ -1,0 +1,53 @@
+--- a/common/autoboot.c
++++ b/common/autoboot.c
+@@ -21,6 +21,14 @@
+ #include <time.h>
+ #include <asm/global_data.h>
+ #include <linux/delay.h>
++
++/* STAT LED during the countdown. Defined in pkgs/cvi-statled-early.c,
++ * appended to board/cvitek/cv181x/board.c, which has no header of its own.
++ * No weak fallback: a missing definition fails the link instead of silently
++ * dropping the indicator. */
++void statled_begin(void);
++void statled_toggle(void);
++void statled_end(void);
+ #include <u-boot/sha256.h>
+ #include <bootcount.h>
+ #include <crypt.h>
+@@ -234,6 +242,8 @@
+ 	};
+ 
+ 	char presskey[DELAY_STOP_STR_MAX_LENGTH];
++	const uint64_t statled_period = get_tbclk() / 8;  /* ~125ms per toggle */
++	uint64_t statled_next;
+ 	int presskey_len = 0;
+ 	int presskey_max = 0;
+ 	int i;
+@@ -264,7 +274,17 @@
+ 	/* In order to keep up with incoming data, check timeout only
+ 	 * when catch up.
+ 	 */
++	statled_begin();
++	statled_next = get_ticks();
++
+ 	do {
++		/* Toggle off the tick count, never a delay: this loop polls the
++		 * console and must stay responsive. */
++		if (get_ticks() >= statled_next) {
++			statled_toggle();
++			statled_next = get_ticks() + statled_period;
++		}
++
+ 		if (tstc()) {
+ 			if (presskey_len < presskey_max) {
+ 				presskey[presskey_len++] = getchar();
+@@ -294,6 +314,8 @@
+ 		}
+ 	} while (!abort && get_ticks() <= etime);
+ 
++	statled_end();
++
+ 	return abort;
+ }
+ 

@@ -1,0 +1,68 @@
+--- a/cmd/efuse.c
++++ b/cmd/efuse.c
+@@ -627,28 +627,60 @@
+ CVI_S32 CVI_EFUSE_Lock(enum CVI_EFUSE_LOCK_E lock)
+ {
+ 	CVI_U32 value = 0;
+-	CVI_U32 ret = 0;
++	CVI_S32 ret = 0;
++	CVI_U32 want = 0;
+ 
+ 	if (lock >= ARRAY_SIZE(cvi_efuse_lock)) {
+ 		_cc_error("lock (%d) is not found\n", lock);
+ 		return CVI_ERR_EFUSE_INVALID_AREA;
+ 	}
++
++	/* bits we intend to set in the LOCK word (0xF8) for this area */
++	want = 0x3 << cvi_efuse_lock[lock].wlock_shift;
++	if (cvi_efuse_lock[lock].rlock_shift >= 0)
++		want |= 0x3 << cvi_efuse_lock[lock].rlock_shift;
++
+ #ifdef __riscv
+-	mmio_write_32(EFUSE_BASE+0x24,0xe9546b8d);
++	mmio_write_32(EFUSE_BASE + 0x24, 0xe9546b8d);
+ #endif
+ 
+ 	value = 0x3 << cvi_efuse_lock[lock].wlock_shift;
+ 	ret = _CVI_EFUSE_Write(CVI_EFUSE_LOCK_ADDR, &value, sizeof(value));
+-	if (ret < 0)
+-		return ret;
+ 
++	/* Don't gate the read-lock write on ret: on riscv the write-lock margin
++	 * read false-negatives (-EIO) even though the fuse blew, and both fuses
++	 * blow regardless. The physical re-read below is the real success check. */
+ 	if (cvi_efuse_lock[lock].rlock_shift >= 0) {
+ 		value = 0x3 << cvi_efuse_lock[lock].rlock_shift;
+ 		ret = _CVI_EFUSE_Write(CVI_EFUSE_LOCK_ADDR, &value, sizeof(value));
+ 	}
++
+ #ifdef __riscv
+-	mmio_write_32(EFUSE_BASE+0x24,0x0);
++	mmio_write_32(EFUSE_BASE + 0x24, 0x0);
++
++	/* The margin verify false-negatives (-EIO) on the protected LOCK word.
++	 * Re-verify against the physical array (EFUSE_AREAD, OR of both rows), not
++	 * the secure shadow; accept only if the intended lock bits are present. */
++	if (ret < 0) {
++		uint32_t row = CVI_EFUSE_LOCK_ADDR / 4;
++		uint32_t phys;
++
++		cvi_efuse_init();
++		cvi_efuse_wait_for_ready();
++		phys = cvi_efuse_read_from_phy((row << 1) | 0, EFUSE_AREAD)
++		     | cvi_efuse_read_from_phy((row << 1) | 1, EFUSE_AREAD);
++		if ((phys & want) == want) {
++			printf("CVI_EFUSE_Lock: margin verify false-negative on 0x%x; "
++			       "physical array read confirms lock bits set (0x%08x): success\n",
++			       CVI_EFUSE_LOCK_ADDR, phys);
++			ret = 0;
++		} else {
++			printf("CVI_EFUSE_Lock: lock 0x%x not set (phys=0x%08x, want=0x%08x)\n",
++			       CVI_EFUSE_LOCK_ADDR, phys, want);
++		}
++	}
+ #endif
++
+ 	return ret;
+ }
+ 

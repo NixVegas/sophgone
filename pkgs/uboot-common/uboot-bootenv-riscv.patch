@@ -1,0 +1,26 @@
+--- a/include/configs/cv181x-asic.h
++++ b/include/configs/cv181x-asic.h
+@@ -375,4 +375,23 @@
+ 	ROOTARGS " " \
+ 	"console=ttyS0,115200 " \
+ 	OTHERBOOTARGS "\0"
++
++/* NixOS extlinux/sysboot, /riscv/ per core (each core boots its own U-Boot
++ * from its own fip and reads its own directory). btnsel points $bootconf at
++ * the desktop conf while USER is held; the trailing sysboot is the badge
++ * fallback if the desktop boot ever returns. Load map: kernel 0x81000000,
++ * scriptaddr 0x82000000, fdt 0x88000000, initrd 0x8a000000, clear of U-Boot
++ * text (0x80200000) and ION (0x9A600000). sysboot needs the _r-suffixed addrs.
++ */
++#undef  CONFIG_BOOTCOMMAND
++#define CONFIG_BOOTCOMMAND \
++    "sdready; btnsel; sysboot mmc 0:1 any 0x82000000 ${bootconf}; sysboot mmc 0:1 any 0x82000000 /riscv/extlinux/extlinux.conf"
++
++#undef  CONFIG_EXTRA_ENV_SETTINGS
++#define CONFIG_EXTRA_ENV_SETTINGS \
++    "bootconf=/riscv/extlinux/extlinux.conf\0" \
++    "scriptaddr=0x82000000\0" \
++    "kernel_addr_r=0x81000000\0" \
++    "fdt_addr_r=0x88000000\0" \
++    "ramdisk_addr_r=0x8a000000\0"
+ #endif /* __CV181X_ASIC_H__ */

