@@ -1,5 +1,7 @@
 # sophgone
 
+https://sophg.one
+
 ## One file. Two architectures. Zero secure boot.
 
 One **polyglot** `fip.bin` pwns *both* cores of the SG2000 at once.
