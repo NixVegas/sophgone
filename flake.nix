@@ -4,7 +4,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     autopen = {
-      url = "git+ssh://forgejo@git.nixos.lv/NixSec/autopen.git?ref=hardware-signing-experiments";
+      url = "github:NixVegas/autopen/hardware-signing-experiments";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nixpkcs = {
