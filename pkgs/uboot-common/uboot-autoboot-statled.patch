@@ -24,7 +24,7 @@
  	int presskey_len = 0;
  	int presskey_max = 0;
  	int i;
-@@ -264,7 +274,17 @@
+@@ -264,15 +274,36 @@
  	/* In order to keep up with incoming data, check timeout only
  	 * when catch up.
  	 */
@@ -40,9 +40,30 @@
 +		}
 +
  		if (tstc()) {
++			int ch = getchar();
++
++			/* ser2net / telnet send LF for Enter, a serial terminal
++			 * sends CR. Fold LF (including the LF of a CRLF) to CR so
++			 * a STOP_STR of "\r" is matched by Enter over either
++			 * transport. STOP_STR is a single char here, so this is
++			 * safe; it would only matter if a STOP_STR ever contained
++			 * a literal LF, which ours does not. */
++			if (ch == '\n')
++				ch = '\r';
++
  			if (presskey_len < presskey_max) {
- 				presskey[presskey_len++] = getchar();
-@@ -294,6 +314,8 @@
+-				presskey[presskey_len++] = getchar();
++				presskey[presskey_len++] = ch;
+ 			} else {
+ 				for (i = 0; i < presskey_max - 1; i++)
+ 					presskey[i] = presskey[i + 1];
+ 
+-				presskey[i] = getchar();
++				presskey[i] = ch;
+ 			}
+ 		}
+ 
+@@ -294,6 +325,8 @@
  		}
  	} while (!abort && get_ticks() <= etime);
  
