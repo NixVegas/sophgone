@@ -69,7 +69,10 @@ let
 in
 runCommand name
   {
-    nativeBuildInputs = [ opensslProvider py ];
+    nativeBuildInputs = [
+      opensslProvider
+      py
+    ];
     preferLocalBuild = true;
     allowSubstitutes = false;
     requiredSystemFeatures = [ "autopen" ];

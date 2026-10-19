@@ -34,12 +34,13 @@
       lib = {
         # benign FIP generation
         fip = import ./pkgs/fip/package.nix; # { core ? "arm", dumpRom ? false, dtb ? null }
-        fipPolyglot = import ./pkgs/fip-polyglot/package.nix; # { dtb ? null, secureBoot ? false }
+        fipPolyglot = import ./pkgs/fip-polyglot/package.nix; # { dtb ? null, secureBoot ? false, secureUboot ? false, fitKeyCert ? null }
         fsbl = import ./pkgs/fsbl/package.nix; # { core ? "arm", dumpRom ? false, slot ? "primary" }
         bl31Blob = import ./pkgs/bl31-blob/package.nix;
         opensbi = import ./pkgs/opensbi/package.nix; # { dtb ? null }
-        ubootArm = import ./pkgs/uboot-arm/package.nix;
-        ubootRiscv = import ./pkgs/uboot-riscv/package.nix;
+        ubootArm = import ./pkgs/uboot-arm/package.nix; # { secure ? false, fitKeyCert ? null }
+        ubootRiscv = import ./pkgs/uboot-riscv/package.nix; # { secure ? false, fitKeyCert ? null }
+        ubootSandbox = import ./pkgs/uboot-sandbox/package.nix; # offline HUSH test harness, see tests/hush-rauc-walk.sh
         mergeBl2 = import ./pkgs/merge-bl2/package.nix;
 
         # overflowBl2: oversized BL2 whose unbounded BL2_IMG_SIZE overruns the mask
@@ -141,6 +142,23 @@
           fip-polyglot = firmware.fip-polyglot;
           fip-arm = firmware.fip;
           fip-riscv = firmware.fip.override { core = "riscv"; };
+
+          # bare U-Boots (the fip LOADER_2ND payloads), plain; tests/uboot-fit-config.sh
+          uboot-arm = firmware.uboot-arm;
+          uboot-riscv = firmware.uboot-riscv;
+          # secure variants (signed-FIT only), embedding the provisioned sg1-image
+          # certificate. tests/fixtures/fit-dev.crt is only for the sandbox fixtures.
+          uboot-arm-secure = firmware.uboot-arm.override {
+            secure = true;
+            fitKeyCert = ./pkgs/uboot-common/sg1-image.crt;
+          };
+          uboot-riscv-secure = firmware.uboot-riscv.override {
+            secure = true;
+            fitKeyCert = ./pkgs/uboot-common/sg1-image.crt;
+          };
+
+          # offline HUSH control-flow test harness; see tests/hush-rauc-walk.sh
+          uboot-sandbox = firmware.uboot-sandbox;
 
           # exploit FIPs (not grafted off a signed fip, so don't work with secure boot)
           chainload-fip = firmware.chainload;

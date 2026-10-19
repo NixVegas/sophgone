@@ -1,0 +1,131 @@
+/* U-Boot control DTS for the Milk-V Duo S (aarch64), installed as
+ * arch/arm/dts/cv181x_cv181xasic.dts and embedded with OF_EMBED. Must stay
+ * self-contained: fit-key-dtb.nix compiles it with plain dtc. */
+/dts-v1/;
+
+/ {
+    model = "SOPHGO SG2000 Milk-V Duo S (aarch64)";
+    compatible = "milkv,duos", "sophgo,sg2000", "cvitek,cv181x";
+
+    #address-cells = <2>;
+    #size-cells = <2>;
+
+    memory@80000000 {
+        device_type = "memory";
+        /* 512 MB DDR at 0x80000000; the first 2 MB is reserved for BL31 */
+        reg = <0x00 0x80000000 0x00 0x20000000>;
+    };
+
+    chosen {
+        stdout-path = "serial0:115200n8";
+    };
+
+    /* GPT partition holding the U-Boot environment. cvi-env-medium.c's
+     * mmc_get_env_addr() places the copies; this names the partition. */
+    config {
+        u-boot,mmc-env-partition = "UBOOT";
+    };
+
+    aliases {
+        serial0 = &uart0;
+        mmc0    = &sd;
+        mmc1    = &emmc;
+    };
+
+    cpus {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        cpu0: cpu@0 {
+            device_type = "cpu";
+            compatible = "arm,cortex-a53";
+            reg = <0x0>;
+            enable-method = "psci";
+        };
+    };
+
+    psci {
+        compatible = "arm,psci-0.2";
+        method = "smc";
+    };
+
+    gic: interrupt-controller@1f01000 {
+        compatible = "arm,gic-400", "arm,cortex-a15-gic";
+        #interrupt-cells = <3>;
+        interrupt-controller;
+        reg = <0x00 0x01f01000 0x00 0x1000>,
+              <0x00 0x01f02000 0x00 0x2000>;
+    };
+
+    timer {
+        compatible = "arm,armv8-timer";
+        interrupts = <1 13 0xff01>,
+                     <1 14 0xff01>,
+                     <1 11 0xff01>,
+                     <1 10 0xff01>;
+        interrupt-parent = <&gic>;
+    };
+
+    soc {
+        #address-cells = <2>;
+        #size-cells = <2>;
+        compatible = "simple-bus";
+        ranges;
+
+        uart0: serial@4140000 {
+            compatible = "snps,dw-apb-uart";
+            reg = <0x00 0x04140000 0x00 0x1000>;
+            clock-frequency = <25000000>;
+            reg-shift = <2>;
+            reg-io-width = <4>;
+            status = "okay";
+        };
+
+        sd: cv-sd@4310000 {
+            compatible = "cvitek,cv181x-sd";
+            reg = <0x00 0x04310000 0x00 0x1000>;
+            reg-names = "core_mem";
+            bus-width = <4>;
+            cap-sd-highspeed;
+            cap-mmc-highspeed;
+            sd-uhs-sdr12;
+            sd-uhs-sdr25;
+            sd-uhs-sdr50;
+            sd-uhs-sdr104;
+            no-sdio;
+            no-mmc;
+            src-frequency = <375000000>;
+            min-frequency = <400000>;
+            max-frequency = <200000000>;
+            64_addressing;
+            reset_tx_rx_phy;
+            reset-names = "sdhci";
+            pll_index = <6>;
+            pll_reg = <0x3002070>;
+            status = "okay";
+        };
+
+        /* mmc1: the on-board eMMC. Values from the vendor
+         * cv181x_base.dtsi eMMC node, plus no-1-8-v: VDDIO_EMMC is 3.3 V
+         * on this board, so HS200/SDR104 tuning (which needs 1.8 V) must
+         * not be attempted. */
+        emmc: cv-emmc@4300000 {
+            compatible = "cvitek,cv181x-emmc";
+            reg = <0x00 0x04300000 0x00 0x1000>;
+            reg-names = "core_mem";
+            bus-width = <4>;
+            non-removable;
+            no-sdio;
+            no-sd;
+            no-1-8-v;
+            src-frequency = <375000000>;
+            min-frequency = <400000>;
+            max-frequency = <200000000>;
+            64_addressing;
+            reset_tx_rx_phy;
+            pll_index = <5>;
+            pll_reg = <0x3002064>;
+            status = "okay";
+        };
+    };
+};

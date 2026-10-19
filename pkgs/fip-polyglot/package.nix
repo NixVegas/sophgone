@@ -14,6 +14,8 @@
   writeTextFile,
   dtb ? null,
   secureBoot ? false,
+  secureUboot ? false,
+  fitKeyCert ? null,
 }:
 let
   # Sanity check: re-open the packed fip and confirm the polyglot BL2 entry word
@@ -51,12 +53,23 @@ let
   armFsbl = callPackage ../fsbl/package.nix { core = "arm"; }; # for the shared chip_conf.bin
   armMon = callPackage ../bl31-blob/package.nix { };
   riscvMon = callPackage ../opensbi/package.nix { inherit dtb; };
-  armUboot = callPackage ../uboot-arm/package.nix { };
-  riscvUboot = callPackage ../uboot-riscv/package.nix { };
+  # secureUboot selects the verified-boot U-Boots (pkgs/uboot-common/
+  # secure-defconfig.fragment); fitKeyCert is then required (the sg1-image cert).
+  armUboot = callPackage ../uboot-arm/package.nix {
+    secure = secureUboot;
+    inherit fitKeyCert;
+  };
+  riscvUboot = callPackage ../uboot-riscv/package.nix {
+    secure = secureUboot;
+    inherit fitKeyCert;
+  };
 in
 runCommand "sg2000-fip-polyglot.bin"
   {
     nativeBuildInputs = [ python3 ];
+    # The U-Boots packed in, for callers that check which variant a fip carries
+    # (badgeos's fip-variant-follows-option check reads their names).
+    passthru = { inherit armUboot riscvUboot; };
   }
   ''
     python3 ${fsblSrcPatched}/plat/cv181x/fiptool.py -v genfip \

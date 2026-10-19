@@ -1,0 +1,4 @@
+setenv bootargs "${verityargs} rauc.slot=${rauc_slot} ${rauc_ext} nixbadge.profile=desktop"
+bootm ${loadaddr}#conf-desktop
+echo nixbadge: bootm conf-desktop returned
+false

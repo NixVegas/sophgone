@@ -1,5 +1,5 @@
 # Declarative nixpkcs keypairs for the SG1 (SG2000 device #1) secure-boot chain:
-# the in-repo source of truth for the four RSA-2048 keys. Import into the signing
+# the in-repo source of truth for the five RSA-2048 keys. Import into the signing
 # host's NixOS config (which must import nixpkcs and its overlay and provide a TPM
 # + SO/user PIN files):
 #
@@ -9,7 +9,10 @@
 # Keys never leave the TPM; certOptions.writeTo exports each self-signed cert
 # (public) to /etc/nixpkcs. Chain: root_pk(sg1-root) -> bl_pk(sg1-sb); sg1-enc is
 # the deterministic-firmware-key KDF key (sign-only); sg1-attest is a separate
-# attestation root.
+# attestation root; sg1-image signs the boot FIT images (kernel/dtb/profile
+# scripts, slot vbmeta) that the secure U-Boot verifies; its public key is
+# compiled into U-Boot's control DTB, so it is not part of the fused chain and
+# rotates by re-signing the fip.
 { pkgs, ... }:
 
 let
@@ -96,6 +99,15 @@ in
       id = 18;
       cn = "SG1 Attestation Root";
       extensions = caExtensions;
+    };
+
+    # Boot-image signer: conf + image signatures of the FIT images U-Boot boots
+    # (sha256,rsa2048, PKCS#1 v1.5), reached through autopen like sg1-sb. Leaf
+    # code-signing cert; the .crt is what fdt_add_pubkey embeds.
+    sg1-image = {
+      id = 19;
+      cn = "SG1 Boot Image";
+      extensions = leafExtensions;
     };
   };
 }

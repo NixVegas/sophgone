@@ -1,0 +1,1 @@
+setenv verityargs "nixbadge.fixture.verity=sg1"

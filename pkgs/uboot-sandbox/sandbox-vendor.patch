@@ -1,0 +1,93 @@
+Sandbox build fixes for the vendor tree (uboot-sandbox only):
+- Kconfig: drop DISTRO_DEFAULTS' sysboot/part/fs-generic selects so the stand-ins replace them.
+- Makefile, cmd/Makefile: drop the cv181x-only cvi_usb and efuse objects; build the stand-ins.
+- arch/sandbox/Kconfig: ENV_SIZE, SYS_TEXT_BASE, IO_TRACE, declared only per board here.
+- bootm.c: exit like a real boot instead of returning ("sandbox: continuing").
+- sandbox.h: the boards' 64 MiB bootm decompression bound (cv181x-asic.h).
+
+--- a/Kconfig
++++ b/Kconfig
+@@ -180,11 +180,8 @@ config DISTRO_DEFAULTS
+ 	select CMD_EXT2
+ 	select CMD_EXT4
+ 	select CMD_FAT
+-	select CMD_FS_GENERIC
+-	select CMD_PART if PARTITIONS
+ 	select CMD_PING if CMD_NET
+ 	select CMD_PXE if NET
+-	select CMD_SYSBOOT
+ 	select ENV_VARS_UBOOT_CONFIG
+ 	select HUSH_PARSER
+ 	select SUPPORT_RAW_INITRD
+--- a/Makefile
++++ b/Makefile
+@@ -827,7 +827,6 @@ libs-y += fs/
+ libs-y += net/
+ libs-y += disk/
+ libs-y += drivers/
+-libs-y += drivers/cvi_usb/
+ libs-y += drivers/dma/
+ libs-y += drivers/gpio/
+ libs-y += drivers/net/
+--- a/arch/sandbox/Kconfig
++++ b/arch/sandbox/Kconfig
+@@ -65,4 +65,16 @@ config SANDBOX_BITS_PER_LONG
+ 	default 32 if HOST_32BIT
+ 	default 64 if HOST_64BIT
+ 
++config ENV_SIZE
++	hex
++	default 0x2000
++
++config SYS_TEXT_BASE
++	hex
++	default 0x0
++
++config IO_TRACE
++	bool
++	default y
++
+ endmenu
+--- a/arch/sandbox/lib/bootm.c
++++ b/arch/sandbox/lib/bootm.c
+@@ -8,6 +8,7 @@
+ #include <bootstage.h>
+ #include <image.h>
+ #include <asm/io.h>
++void nixbadge_sb_booted(const char *what);
+ 
+ #define	LINUX_ARM_ZIMAGE_MAGIC	0x016f2818
+ 
+@@ -57,6 +58,7 @@ int do_bootm_linux(int flag, int argc, char *argv[], bootm_headers_t *images)
+ 		printf("## Transferring control to Linux (at address %08lx)...\n",
+ 		       images->ep);
+ 		printf("sandbox: continuing, as we cannot run Linux\n");
++		nixbadge_sb_booted("bootm");
+ 	}
+ 
+ 	return 0;
+--- a/cmd/Makefile
++++ b/cmd/Makefile
+@@ -209,7 +209,6 @@ obj-$(CONFIG_CMD_AVB) += avb.o
+ # Foundries.IO SCP03
+ obj-$(CONFIG_CMD_SCP03) += scp03.o
+ 
+-obj-y += efuse.o
+ obj-$(CONFIG_CMD_CVISOUND) += cvisound.o
+ 
+ obj-$(CONFIG_ARM) += arm/
+@@ -266,3 +265,5 @@ $(obj)/license_data_size.h: $(srctree)/Licenses/gpl-2.0.txt FORCE
+ 	$(call filechk,data_size)
+ 
+ CFLAGS_ethsw.o := -Wno-enum-conversion
++obj-y += nixbadge-sandbox-stubs.o
++obj-y += nixbadge-sandbox-btnsel.o
+--- a/include/configs/sandbox.h
++++ b/include/configs/sandbox.h
+@@ -130,4 +130,6 @@
+ 
+ #define CONFIG_SYS_SATA_MAX_DEVICE	2
+ 
++#define CONFIG_SYS_BOOTM_LEN		(64 << 20)
++
+ #endif

@@ -1,0 +1,21 @@
+
+# Secure variant, appended to the defconfig by pkgs/uboot-{arm,riscv}/package.nix:
+# only a FIT signed by the sg1-image key (fit-key-dtb.nix) may boot. Later lines
+# override the defconfig's earlier ones.
+CONFIG_FIT=y
+CONFIG_FIT_SIGNATURE=y
+CONFIG_FIT_FULL_CHECK=y
+CONFIG_RSA=y
+CONFIG_RSA_VERIFY=y
+CONFIG_SHA256=y
+# -2 boots without checking for a key, so there is no prompt to interrupt into.
+# bootdelay is not on the stored-env write-list, so no stored env can raise it.
+CONFIG_BOOTDELAY=-2
+# Unreachable with -2, but AUTOBOOT_KEYED (from the defconfig) compiles out the
+# "Hit any key" path and the keyed prompt is empty, so neither stop prompt is in
+# the binary (tests/uboot-fit-config.sh checks both).
+CONFIG_AUTOBOOT_PROMPT=""
+# Remove the unsigned boot paths (extlinux, raw Image, network).
+# CONFIG_CMD_SYSBOOT is not set
+# CONFIG_CMD_BOOTI is not set
+# CONFIG_CMD_PXE is not set

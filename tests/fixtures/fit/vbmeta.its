@@ -1,0 +1,27 @@
+/*
+ * Test fixture (tests/make-fit-fixtures.sh): a slot's vbmeta.itb as nixbadge_fit
+ * loads it -- one script image, "frag", that sets $verityargs. Signed per image
+ * (key-name-hint sg1-image-img): `source ${vbaddr}:frag` verifies the image
+ * against the control DTB's required = "image" key, and has no configuration to
+ * check (mkimage still wants a /configurations node, hence the empty one). Built
+ * for the U-Boot sandbox only.
+ */
+/dts-v1/;
+/ {
+	description = "nix-badge test fixture: slot vbmeta";
+	#address-cells = <1>;
+	images {
+		frag {
+			description = "verity kernel-argument fragment";
+			data = /incbin/("vbmeta-frag.txt");
+			type = "script";
+			compression = "none";
+			hash-1 { algo = "sha256"; };
+			signature-1 {
+				algo = "sha256,rsa2048";
+				key-name-hint = "sg1-image-img";
+			};
+		};
+	};
+	configurations { };
+};

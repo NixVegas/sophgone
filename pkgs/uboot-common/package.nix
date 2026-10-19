@@ -36,11 +36,14 @@ rec {
   '';
 
   # Two custom u-boot commands, cat'd onto cmd/efuse.c (obj-y, already includes
-  # <mmio.h>). strapsel = core-select latch; btnsel = USER-button profile;
+  # <mmio.h>). strapsel = core-select latch; btnsel = BOOT/USER-button profile;
   # sdready = wait out the SD init race before anything boots off it.
   strapselCmd = ./cvi-strapsel-cmd.c;
   btnselCmd = ./cvi-btnsel-cmd.c;
   sdreadyCmd = ./cvi-sdready-cmd.c;
+  # nixbadge_halt: the secure build's end of the walk (idles; compiled only with
+  # CONFIG_FIT_SIGNATURE, see the file).
+  haltCmd = ./cvi-halt-cmd.c;
 
   # Make hang() reset the board instead of parking forever. Shared by both
   # cores: the intermittent -12 bind failure this exists for is not
@@ -55,34 +58,55 @@ rec {
   statledEarly = ./cvi-statled-early.c;
   statledAutobootPatch = ./uboot-autoboot-statled.patch;
 
-  # Boot-env override (CONFIG_BOOTCOMMAND / CONFIG_EXTRA_ENV_SETTINGS) for
-  # include/configs/cv181x-asic.h, one patch per core. The cores differ only in
-  # the /arm vs /riscv extlinux path. See pkgs/uboot-bootenv-<core>.patch.
-  bootenvPatch =
+  # Board hooks for where the U-Boot environment lives (SD: start of the GPT
+  # partition UBOOT; eMMC: boot area 2), the env load order, and the
+  # bootmedium/mmcdev/rauc_ext variables. Appended to board.c.
+  envMedium = ./cvi-env-medium.c;
+
+  # bootcmd (run nixbadge_boot), the generated-env include and the env write
+  # list, for include/configs/cv181x-asic.h. Core-independent.
+  bootenvPatch = ./uboot-bootenv.patch;
+
+  # The default environment: nixbadge.env, preprocessed against the board
+  # config and converted by upstream's env2string.awk into
+  # include/generated/nixbadge-env.h (rules in nixbadge-env.mk). envMakeArgs
+  # are the arguments that build it, appended to the board's own make
+  # variables after the defconfig step; the core reaches the file only as
+  # NIXBADGE_CORE.
+  envFile = ./nixbadge.env;
+  env2stringAwk = ./env2string.awk;
+  envMk = ./nixbadge-env.mk;
+  envMakeArgs =
     core:
-    {
-      arm = ./uboot-bootenv-arm.patch;
-      riscv = ./uboot-bootenv-riscv.patch;
-    }
-    .${core};
+    "-f Makefile -f ${envMk} NIXBADGE_ENV=${envFile} NIXBADGE_ENV_AWK=${env2stringAwk} NIXBADGE_CORE=${core} include/generated/nixbadge-env.h";
 
   # Vendor-tree patches applied by both cores via the derivation `patches` attr:
   # hang() -> reset_cpu() (an intermittent early bind failure retries instead of
-  # parking) and the autoboot STAT-LED blink.
+  # parking), the autoboot STAT-LED blink and the boot-env patch.
   commonPatches = [
     hangResetPatch
     statledAutobootPatch
+    bootenvPatch
   ];
 
-  # postPatch snippet for the file appends that aren't patches: both custom
-  # commands onto cmd/efuse.c (btnsel's per-core desktop conf #defined just before
-  # it), and the STAT-LED helpers onto board.c (driven by statledAutobootPatch,
-  # applied via `patches`). See pkgs/cvi-{strapsel,btnsel,sdready,statled-early}.c.
+  # postPatch snippet for the file appends that aren't patches: the custom
+  # commands onto cmd/efuse.c (btnsel's per-core desktop and video confs
+  # #defined just before it), the STAT-LED helpers and env-medium hooks onto
+  # board.c, and the CBSIZE raise in cv181x-asic.h.
   wireCommands = core: ''
     cat ${strapselCmd} >> cmd/efuse.c
     printf '#define BTNSEL_DESKTOP_CONF "/${core}/extlinux/extlinux-desktop.conf"\n' >> cmd/efuse.c
+    printf '#define BTNSEL_VIDEO_CONF "/${core}/extlinux/extlinux-video.conf"\n' >> cmd/efuse.c
     cat ${btnselCmd} >> cmd/efuse.c
     cat ${sdreadyCmd} >> cmd/efuse.c
+    cat ${haltCmd} >> cmd/efuse.c
     cat ${statledEarly} >> board/cvitek/cv181x/board.c
+    cat ${envMedium} >> board/cvitek/cv181x/board.c
+
+    # Raise CONFIG_SYS_CBSIZE (and the PBSIZE/BARGSIZE derived from it) from
+    # 512 to 2048: pxe_utils.c's label_boot() refuses longer bootargs with
+    # "bootarg overflow", and the dm-verity APPEND line is ~800 bytes.
+    substituteInPlace include/configs/cv181x-asic.h \
+      --replace-fail '#define CONFIG_SYS_CBSIZE		512' '#define CONFIG_SYS_CBSIZE		2048'
   '';
 }

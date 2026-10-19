@@ -35,13 +35,49 @@ CONFIG_DEFAULT_DEVICE_TREE="cv181x_cv181xasic"
 CONFIG_ENV_IS_IN_MMC=y
 CONFIG_ENV_SIZE=0x20000
 CONFIG_ENV_SECT_SIZE=0x40000
-CONFIG_ENV_OFFSET=0x880000
+# CONFIG_ENV_OFFSET/_REDUND here only satisfy Kconfig (ENV_IS_IN_MMC /
+# SYS_REDUNDAND_ENVIRONMENT depend on them as ints) -- include/configs/
+# cv181x-asic.h unconditionally #undefs both (and CONFIG_ENV_SIZE /
+# CONFIG_ENV_IS_IN_MMC) before including cvipart.h, which redefines them, so
+# these defconfig lines never reach the compiler. cvi-env-medium.c's
+# uboot-common/cvipart.h sets the real values: CONFIG_ENV_OFFSET=0x0,
+# CONFIG_ENV_OFFSET_REDUND=0x20000 (partition-relative; cvi-env-medium.c's
+# mmc_get_env_addr() override places the two copies there by GPT partition
+# name, not by env/mmc.c's own offset math, which anchors from the partition's
+# END, not its start -- see that override's comment).
+CONFIG_ENV_OFFSET=0x0
+CONFIG_SYS_REDUNDAND_ENVIRONMENT=y
+CONFIG_ENV_OFFSET_REDUND=0x20000
 CONFIG_SYS_RELOC_GD_ENV_ADDR=y
+CONFIG_USE_DEFAULT_ENV=y
+CONFIG_SYS_MMC_ENV_DEV=0
+# Not selected by the cvitek targets and off by default (common/Kconfig).
+# board_late_init() (cvi-env-medium.c) needs it: it exports bootmedium/mmcdev
+# from the FSBL's boot-source flag after initr_env and before bootcmd.
+CONFIG_BOARD_LATE_INIT=y
+# Only the RAUC-owned slot state and the loaded marker may come from storage;
+# everything else stays compiled-in (identical on every medium).
+CONFIG_ENV_WRITEABLE_LIST=y
+# A write-list load must not wipe the compiled-in default env (bootcmd,
+# nixbadge_boot, scriptaddr, ...) down to just the four writeable variables.
+# ENV_IS_NOWHERE + cvi-env-medium.c's env_get_location() override load the
+# defaults (NOWHERE, priority 0) before overlaying the stored env (MMC,
+# priority 1); ENV_APPEND is what makes env_load() keep going past the first
+# successful driver AND makes himport_r() merge instead of replacing
+# (lib/hashtable.c) -- see that override's comment for the full chain.
+CONFIG_ENV_APPEND=y
+CONFIG_ENV_IS_NOWHERE=y
+# CONFIG_ENV_FLAGS_LIST_STATIC is NOT a Kconfig symbol in this tree (no `config
+# ENV_FLAGS_LIST_STATIC` stanza; env/flags.c reads it straight from
+# include/env_flags.h's `#ifndef CONFIG_ENV_FLAGS_LIST_STATIC` fallback, and
+# scripts/config_whitelist.txt lists it as a legacy #define-only option, same
+# as aristainetos2.h/ids8313.h use it). A defconfig line here is silently
+# dropped by `make ..._defconfig` (confirmed: it never reaches the binary).
+# It is #define'd directly in include/configs/cv181x-asic.h instead, by the
+# bootenv patch, right next to CONFIG_BOOTCOMMAND.
 # CONFIG_CMD_CVI_UPDATE is not set
 # CONFIG_CMD_BOOT_MODE_NAND is not set
 # CONFIG_DISPLAY_CPUINFO is not set
-CONFIG_USE_DEFAULT_ENV=y
-CONFIG_SYS_MMC_ENV_DEV=0
 CONFIG_MMC=y
 CONFIG_MMC_SDHCI=y
 CONFIG_DM=y
@@ -79,3 +115,13 @@ CONFIG_SUPPORT_RAW_INITRD=y
 
 # SHA-256 for the devek command (condition on-die TRNG output into DEVICE_EK).
 CONFIG_SHA256=y
+# GPT partition tables (the badge SD/eMMC layout is GPT with a hybrid MBR; the
+# mask ROM only reads the MBR, U-Boot should see the real table). Falls back
+# to the DOS table on MBR-only cards, so existing images keep booting.
+CONFIG_EFI_PARTITION=y
+CONFIG_PARTITION_UUIDS=y
+# FIT image support (unsigned here; the secure variant adds signature checking
+# via pkgs/uboot-common/secure-defconfig.fragment) plus `source` for boot scripts.
+# CONFIG_SHA256 is already set above (devek).
+CONFIG_FIT=y
+CONFIG_CMD_SOURCE=y

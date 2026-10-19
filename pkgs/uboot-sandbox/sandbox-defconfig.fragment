@@ -1,0 +1,28 @@
+# Merged into the sandbox_defconfig .config: stock features that fail in this
+# fork or that the stand-in commands replace, and enough RAM to reach the
+# boards' load addresses (scriptaddr 0x8202xxxx, loadaddr 0x8a000000).
+# CONFIG_LTO is not set
+# CONFIG_VIDEO_SANDBOX_SDL is not set
+# CONFIG_CMD_CVI_UPDATE is not set
+# CONFIG_CMD_BOOTEFI_HELLO_COMPILE is not set
+# CONFIG_CMD_BOOTEFI_HELLO is not set
+# CONFIG_CMD_SF is not set
+# CONFIG_CMD_SF_TEST is not set
+# CONFIG_DM_SPI_FLASH is not set
+# CONFIG_SPI_FLASH_SANDBOX is not set
+# CONFIG_SPI_FLASH_ATMEL is not set
+# CONFIG_SPI_FLASH_EON is not set
+# CONFIG_SPI_FLASH_GIGADEVICE is not set
+# CONFIG_SPI_FLASH_MACRONIX is not set
+# CONFIG_SPI_FLASH_SPANSION is not set
+# CONFIG_SPI_FLASH_STMICRO is not set
+# CONFIG_SPI_FLASH_SST is not set
+# CONFIG_SPI_FLASH_WINBOND is not set
+# CONFIG_CMD_I2C is not set
+# CONFIG_UNIT_TEST is not set
+# CONFIG_CLK_K210 is not set
+# CONFIG_CLK_K210_SET_RATE is not set
+# CONFIG_CMD_SYSBOOT is not set
+# CONFIG_CMD_PART is not set
+# CONFIG_CMD_FS_GENERIC is not set
+CONFIG_SANDBOX_RAM_SIZE_MB=2304

@@ -147,6 +147,9 @@ runCommand "sg2000-fip-signed${lib.optionalString encrypt "-enc"}"
     preferLocalBuild = true;
     requiredSystemFeatures = [ "autopen" ];
     allowSubstitutes = false;
+    # The fip this signed, for callers that inspect what a signed image carries
+    # (badgeos's fip-variant-follows-option check reads its U-Boot by name).
+    passthru = { inherit fip; };
   }
   ''
     mkdir -p $out
@@ -183,4 +186,4 @@ runCommand "sg2000-fip-signed${lib.optionalString encrypt "-enc"}"
     sha256sum root_pk.bin | cut -d' ' -f1 > $out/kpub_hash.txt
     echo "signed fip: $out/fip.bin"
     echo "KPUB_HASH:  $(cat $out/kpub_hash.txt)"
-''
+  ''

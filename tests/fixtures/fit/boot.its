@@ -1,0 +1,87 @@
+/*
+ * Test fixture (tests/make-fit-fixtures.sh): a slot's boot.itb as nixbadge_fit
+ * loads it. Two profiles, default and desktop, each a script-<profile> that
+ * boots conf-<profile>; there is deliberately NO script-video / conf-video, so a
+ * USER-held boot exercises the script-default fallback (hush-rauc-walk.sh 11b).
+ * Every image is signed (sg1-image-img, the required = "image" key) and every
+ * configuration is signed (sg1-image, the required = "conf" key). arch is
+ * "sandbox" because only the sandbox U-Boot boots this; the kernel is a 64 KiB
+ * dummy and the fdt an empty tree.
+ */
+/dts-v1/;
+/ {
+	description = "nix-badge test fixture: slot boot FIT";
+	#address-cells = <1>;
+	images {
+		kernel {
+			description = "dummy kernel";
+			data = /incbin/("kernel.bin");
+			type = "kernel";
+			arch = "sandbox";
+			os = "linux";
+			compression = "none";
+			load = <0x81000000>;
+			entry = <0x81000000>;
+			hash-1 { algo = "sha256"; };
+			signature-1 {
+				algo = "sha256,rsa2048";
+				key-name-hint = "sg1-image-img";
+			};
+		};
+		fdt {
+			description = "dummy fdt";
+			data = /incbin/("fdt.dtb");
+			type = "flat_dt";
+			arch = "sandbox";
+			compression = "none";
+			hash-1 { algo = "sha256"; };
+			signature-1 {
+				algo = "sha256,rsa2048";
+				key-name-hint = "sg1-image-img";
+			};
+		};
+		script-default {
+			description = "default profile";
+			data = /incbin/("script-default.txt");
+			type = "script";
+			compression = "none";
+			hash-1 { algo = "sha256"; };
+			signature-1 {
+				algo = "sha256,rsa2048";
+				key-name-hint = "sg1-image-img";
+			};
+		};
+		script-desktop {
+			description = "desktop profile";
+			data = /incbin/("script-desktop.txt");
+			type = "script";
+			compression = "none";
+			hash-1 { algo = "sha256"; };
+			signature-1 {
+				algo = "sha256,rsa2048";
+				key-name-hint = "sg1-image-img";
+			};
+		};
+	};
+	configurations {
+		default = "conf-default";
+		conf-default {
+			kernel = "kernel";
+			fdt = "fdt";
+			signature-1 {
+				algo = "sha256,rsa2048";
+				key-name-hint = "sg1-image";
+				sign-images = "fdt", "kernel";
+			};
+		};
+		conf-desktop {
+			kernel = "kernel";
+			fdt = "fdt";
+			signature-1 {
+				algo = "sha256,rsa2048";
+				key-name-hint = "sg1-image";
+				sign-images = "fdt", "kernel";
+			};
+		};
+	};
+};

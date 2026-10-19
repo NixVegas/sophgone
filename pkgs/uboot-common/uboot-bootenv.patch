@@ -1,0 +1,31 @@
+--- a/include/configs/cv181x-asic.h
++++ b/include/configs/cv181x-asic.h
+@@ -375,4 +375,28 @@
+ 	ROOTARGS " " \
+ 	"console=ttyS0,115200 " \
+ 	OTHERBOOTARGS "\0"
++
++/* NixOS boot: bootcmd runs nixbadge_boot. The default environment is
++ * nixbadge.env, converted at build time into generated/nixbadge-env.h
++ * (uboot-common/package.nix), which defines CONFIG_EXTRA_ENV_SETTINGS. It
++ * is not included while that conversion preprocesses this header
++ * (__UBOOT_CONFIG__) or while Makefile.autoconf scans it (DO_DEPS_ONLY):
++ * both run before the file exists. */
++#undef  CONFIG_BOOTCOMMAND
++#define CONFIG_BOOTCOMMAND "run nixbadge_boot"
++
++#undef  CONFIG_EXTRA_ENV_SETTINGS
++#if !defined(__UBOOT_CONFIG__) && !defined(DO_DEPS_ONLY)
++#include <generated/nixbadge-env.h>
++#endif
++
++/* Write-list for the stored environment (CONFIG_ENV_WRITEABLE_LIST, set in
++ * the defconfig): only these four may be overwritten by env_import_redund()
++ * at boot ('w'); everything else stays compiled-in. This is not a Kconfig
++ * symbol in this tree: env/flags.c reads it through include/env_flags.h's
++ * `#ifndef CONFIG_ENV_FLAGS_LIST_STATIC` fallback, so it is #define'd here
++ * (a defconfig line is silently dropped). 's' = string, 'd' = decimal.
++ */
++#define CONFIG_ENV_FLAGS_LIST_STATIC \
++    "BOOT_ORDER:sw,BOOT_A_LEFT:dw,BOOT_B_LEFT:dw,env_loaded:sw"
+ #endif /* __CV181X_ASIC_H__ */
