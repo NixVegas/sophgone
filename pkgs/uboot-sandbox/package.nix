@@ -22,6 +22,15 @@
 #   btnsel         the real cvi-btnsel-cmd.c with a fake MMIO read: BOOT held
 #                  when $sb_btn=held, USER held when $sb_user=held.
 #   nixbadge_halt  prints "HALTED" and exits.
+#   nixbadge_fuse  the real cvi-fuse-cmd.c (and the strapsel/trng/devek it
+#                  runs) over a fake eFuse array, TRNG and core-select latch:
+#                  blank unless $sb_fused=1 (provisioned as SG1-0003); each
+#                  write prints "EFUSEW <area> <hex>", the read-lock
+#                  "EFUSE-LOCK DEVICE_EK", a latch "LATCH <core>"; $sb_core
+#                  picks the core, $sb_switch pins the strap, and $sb_devek,
+#                  $sb_efuse, $sb_efuser, $sb_lock, $sb_trng model the failure
+#                  cases (see the stubs file).
+#   reset          prints "RESET" and exits.
 #
 # A boot never returns, so a successful sysboot, or a bootm that reaches the
 # kernel hand-off, prints "BOOTED <file|bootm>" and one name=value line per
@@ -84,8 +93,11 @@ stdenv.mkDerivation {
     grep -q 'nixbadge_sb_booted("bootm")' arch/sandbox/lib/bootm.c
 
     # The stand-in commands described in the file header, built obj-y (see the
-    # patch), and the real btnsel behind a fake-MMIO prelude.
-    cp ${./nixbadge-sandbox-stubs.c} cmd/nixbadge-sandbox-stubs.c
+    # patch), followed by the real strapsel, trng, devek and nixbadge_fuse over
+    # their fake eFuse, TRNG and core-select latch, and the real btnsel behind a
+    # fake-MMIO prelude.
+    cat ${common.boardUserHeader} ${./nixbadge-sandbox-stubs.c} ${common.strapselCmd} \
+      ${common.trngCmd} ${common.devekCmd} ${common.fuseCmd} > cmd/nixbadge-sandbox-stubs.c
     cat ${./nixbadge-sandbox-btnsel.c} ${../uboot-common/cvi-btnsel-cmd.c} > cmd/nixbadge-sandbox-btnsel.c
 
     # No-op board_save_time_record()/TIME_RECORDS_FIELD_*, -include'd into

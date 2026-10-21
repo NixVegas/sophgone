@@ -35,7 +35,7 @@ rec {
     	  build/boards/cv181x/sg2000_milkv_duos_glibc_arm64_sd/memmap.py.
   '';
 
-  # Two custom u-boot commands, cat'd onto cmd/efuse.c (obj-y, already includes
+  # Custom u-boot commands, cat'd onto cmd/efuse.c (obj-y, already includes
   # <mmio.h>). strapsel = core-select latch; btnsel = BOOT/USER-button profile;
   # sdready = wait out the SD init race before anything boots off it.
   strapselCmd = ./cvi-strapsel-cmd.c;
@@ -44,6 +44,31 @@ rec {
   # nixbadge_halt: the secure build's end of the walk (idles; compiled only with
   # CONFIG_FIT_SIGNATURE, see the file).
   haltCmd = ./cvi-halt-cmd.c;
+  # `trng` (the EIP-76 TRNG) and `devek` (DEVICE_EK from it, burned and
+  # read-locked): riscv only inside, see the files. nixbadge_fuse: the serial,
+  # the board record and the device key, once (see the file), preceded by the
+  # USER record as NIXBADGE_BOARD_USER. devek needs trng, nixbadge_fuse both,
+  # and CONFIG_SHA256 (both defconfigs).
+  trngCmd = ./cvi-trng-cmd.c;
+  devekCmd = ./cvi-devek-cmd.c;
+  fuseCmd = ./cvi-fuse-cmd.c;
+
+  # The 40-byte eFuse USER record every badge carries: the fabricated PCB's store
+  # path /nix/store/dchav4nca8fzz7lcc9zadjxjcrvs920p-nix-badge-board-2.0-20260706-07f6efc
+  # encoded by badgeos' pkgs/badge/board-id/board_id.py. Only DEVICE_ID (the
+  # serial) differs between badges.
+  boardUserRecord = "2d6415b2598a43bff3d18c4fd4d9764ccef49102fbb4f85b8b0e4cf956e2df879642829d207f6efc";
+  boardUserHeader =
+    assert lib.assertMsg (
+      builtins.match "[0-9a-f]{80}" boardUserRecord != null
+    ) "boardUserRecord must be 40 bytes of lowercase hex";
+    writeText "nixbadge-board-user.h" ''
+      #define NIXBADGE_BOARD_USER { ${
+        lib.concatMapStringsSep ", " (i: "0x${builtins.substring (2 * i) 2 boardUserRecord}") (
+          lib.range 0 39
+        )
+      } }
+    '';
 
   # Make hang() reset the board instead of parking forever. Shared by both
   # cores: the intermittent -12 bind failure this exists for is not
@@ -90,16 +115,16 @@ rec {
   ];
 
   # postPatch snippet for the file appends that aren't patches: the custom
-  # commands onto cmd/efuse.c (btnsel's per-core desktop and video confs
+  # commands onto cmd/efuse.c (btnsel's per-core extlinux directory
   # #defined just before it), the STAT-LED helpers and env-medium hooks onto
   # board.c, and the CBSIZE raise in cv181x-asic.h.
   wireCommands = core: ''
     cat ${strapselCmd} >> cmd/efuse.c
-    printf '#define BTNSEL_DESKTOP_CONF "/${core}/extlinux/extlinux-desktop.conf"\n' >> cmd/efuse.c
-    printf '#define BTNSEL_VIDEO_CONF "/${core}/extlinux/extlinux-video.conf"\n' >> cmd/efuse.c
+    printf '#define BTNSEL_CONF_DIR "/${core}/extlinux"\n' >> cmd/efuse.c
     cat ${btnselCmd} >> cmd/efuse.c
     cat ${sdreadyCmd} >> cmd/efuse.c
     cat ${haltCmd} >> cmd/efuse.c
+    cat ${trngCmd} ${devekCmd} ${boardUserHeader} ${fuseCmd} >> cmd/efuse.c
     cat ${statledEarly} >> board/cvitek/cv181x/board.c
     cat ${envMedium} >> board/cvitek/cv181x/board.c
 

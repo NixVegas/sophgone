@@ -5,8 +5,9 @@
 #   nix shell nixpkgs#dtc -c sh tests/uboot-fit-config.sh result-uboot-arm result-uboot-arm-secure
 #
 # both:   `fdt` linked (do_fdt: nixbadge_fit tells an absent profile script from a
-#         failed one with `fdt addr` + `fdt get`), and bootm's gzip path (gunzip,
-#         image_decomp: badgeos' boot.itb carries a gzip-compressed kernel).
+#         failed one with `fdt addr` + `fdt get`), bootm's gzip path (gunzip,
+#         image_decomp: badgeos' boot.itb carries a gzip-compressed kernel), and
+#         nixbadge_fuse (the board identity, cvi-fuse-cmd.c).
 # plain:  FIT parsing linked (fit_image_verify), NO RSA verifier, extlinux boot kept
 #         (do_sysboot, do_booti).
 # secure: RSA + required-signature check linked, no sysboot/booti/pxe, no legacy
@@ -50,7 +51,15 @@ for b in "$PLAIN" "$SECURE"; do
   want "$b" do_fdt
   want "$b" gunzip
   want "$b" image_decomp
+  # nixbadge_fuseonce's command (cvi-fuse-cmd.c) and the reset after it
+  want "$b" do_nixbadge_fuse
+  want "$b" do_reset
 done
+# trng/devek exist only on riscv (the arm U-Boot cannot reach the TRNG)
+case "$PLAIN" in
+  *riscv*) for b in "$PLAIN" "$SECURE"; do want "$b" do_devek; want "$b" do_trng; done ;;
+  *) for b in "$PLAIN" "$SECURE"; do reject "$b" do_devek; reject "$b" do_trng; done ;;
+esac
 
 want "$PLAIN" fit_image_verify
 reject "$PLAIN" rsa_verify

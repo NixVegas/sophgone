@@ -12,6 +12,7 @@
   python3,
   runCommand,
   writeTextFile,
+  # Ignored: OpenSBI embeds pkgs/opensbi/opensbi.dts. Kept for older callers.
   dtb ? null,
   secureBoot ? false,
   secureUboot ? false,
@@ -31,6 +32,11 @@ let
       # entry word, and be a plausible size (BL2 + 2 monitors + 2 u-boots).
       assert b"\x6f\x00\x00\x14" in d, "polyglot entry word not found in fip"
       assert len(d) > 0x40000, f"fip suspiciously small: {len(d):#x}"
+      # The RAUC bundle and the eMMC layout (factory copy at +1 MiB) hold at most
+      # 1 MiB of fip.
+      ceiling = 1 << 20
+      print(f"fip size {len(d)} B, ceiling {ceiling} B, headroom {ceiling - len(d)} B")
+      assert len(d) <= ceiling, f"fip is {len(d) - ceiling} B over the {ceiling} B ceiling"
       print(f"polyglot fip ok: {len(d):#x} bytes")
     '';
   };

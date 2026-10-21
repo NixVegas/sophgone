@@ -1,18 +1,25 @@
 /*
  * `btnsel` -- pick the boot profile from the BOOT and USER buttons at power-up.
  *
- *   hold BOOT (S1, marked UPDATE) -> $target=desktop, extlinux-desktop[-<slot>].conf
- *   hold USER (S3)                -> $target=video,   extlinux-video[-<slot>].conf
- *   hold both                     -> video (USER is sampled second and wins)
- *   hold neither                  -> $target=default, $bootconf untouched
+ *   hold neither                  -> $target=$nixbadge_profile_default
+ *   hold BOOT (S1, marked UPDATE) -> $target=$nixbadge_profile_boot
+ *   hold USER (S3)                -> $target=$nixbadge_profile_user
+ *   hold both                     -> factory reset: $target=$nixbadge_profile_default
+ *                                    and $nixbadge_args=nixbadge.reset=userdata
+ *
+ * $nixbadge_args is cleared in every other case. The profile variables default
+ * to default, desktop and video (nixbadge.env); one that is unset, empty,
+ * longer than BTNSEL_NAME_MAX or not [A-Za-z0-9_-] falls back to that
+ * built-in name.
  *
  * $target names the profile for the signed-FIT path (nixbadge_fit sources the
- * slot boot.itb's script-${target}, which boots conf-${target}); $bootconf
- * names the extlinux conf for the legacy tail (nixbadge_legacy, compiled in
- * only where sysboot is). The -<slot> suffix is added when $rauc_slot is set
- * (see btnsel_set_conf()).
+ * slot boot.itb's script-${target}, which boots conf-${target}); the profile
+ * script appends ${nixbadge_args} to bootargs. For the legacy tail
+ * (nixbadge_legacy, compiled in only where sysboot is) a target other than
+ * "default" sets $bootconf to BTNSEL_CONF_DIR/extlinux-<target>[-<slot>].conf,
+ * with -<slot> only when $rauc_slot is set; "default" leaves $bootconf alone.
  *
- * The running system claims USER (badge-video clips, OLED daemon), but only
+ * The running system claims USER (nix-badge-video clips, OLED daemon), but only
  * once Linux is up, so U-Boot can read it here. Nothing below leaves the pad
  * or the line in a changed state.
  *
@@ -43,26 +50,23 @@
  * countdown; that is the window the STAT LED blinks through. (The secure
  * build has no countdown, BOOTDELAY=-2: hold the button from power-up.)
  *
- * Fails safe: $target is "default" unless a button reads held, and
- * nixbadge_legacy sets `bootconf` to the default conf just before running
- * btnsel, which only overrides it. The USER read also checks that its mux and
- * direction writes took, and reports "not held" if not. A profile the card
- * does not carry falls back to the default too: nixbadge_fit sources
- * script-default when script-${target} is missing, and nixbadge_legacy's
- * `sysboot ... ${bootconf}` is followed by a sysboot of the default conf.
+ * Fails safe: a button reads held only if every sample agrees, and the USER
+ * read also checks that its mux and direction writes took, so a misread means
+ * "not held". nixbadge_legacy sets `bootconf` to the default conf just before
+ * running btnsel, which only overrides it. A profile the card does not carry
+ * falls back to the default too: nixbadge_fit sources script-default when
+ * script-${target} is missing, and nixbadge_legacy's `sysboot ... ${bootconf}`
+ * is followed by a sysboot of the default conf.
  *
- * BTNSEL_DESKTOP_CONF and BTNSEL_VIDEO_CONF are #defined per core by the
- * U-Boot derivation's postPatch (/arm/... vs /riscv/...) before this file is
- * appended.
+ * BTNSEL_CONF_DIR is #defined per core by the U-Boot derivation's postPatch
+ * (/arm/extlinux vs /riscv/extlinux) before this file is appended.
  */
 #include <env.h>
+#include <linux/ctype.h>
 #include <linux/delay.h>
 
-#ifndef BTNSEL_DESKTOP_CONF
-#define BTNSEL_DESKTOP_CONF "/arm/extlinux/extlinux-desktop.conf"
-#endif
-#ifndef BTNSEL_VIDEO_CONF
-#define BTNSEL_VIDEO_CONF "/arm/extlinux/extlinux-video.conf"
+#ifndef BTNSEL_CONF_DIR
+#define BTNSEL_CONF_DIR "/arm/extlinux"
 #endif
 
 #define XGPIOB_BASE		0x03021000UL
@@ -159,75 +163,99 @@ static int user_btn_held(void)
 	return held;
 }
 
-/*
- * With $rauc_slot set, splice "-<slot>" in before ".conf" of the compiled-in
- * per-core conf path (hush expands ${var} only one level, so the env strings
- * cannot build that name themselves). nixbadge_try runs btnsel with rauc_slot
- * set but only uses $target; nixbadge_legacy clears rauc_slot first and gets
- * the fixed legacy conf, the only one an ext4-mbr card has.
- *
- * conf is one of the two compiled-in paths and conf_size its sizeof;
- * what is the "<button> held -> <profile>" message prefix.
- */
-#define BTNSEL_CONF_MAX							\
-	(sizeof(BTNSEL_DESKTOP_CONF) > sizeof(BTNSEL_VIDEO_CONF) ?	\
-	 sizeof(BTNSEL_DESKTOP_CONF) : sizeof(BTNSEL_VIDEO_CONF))
+#define BTNSEL_NAME_MAX		32
+#define BTNSEL_RESET_ARGS	"nixbadge.reset=userdata"
 
-static void btnsel_set_conf(const char *conf, size_t conf_size,
-			    const char *slot, const char *what)
+/* Copy $var into name (BTNSEL_NAME_MAX + 1 bytes) if it is a usable profile
+ * name, else fallback. The name ends up in a FAT path and a FIT node path. */
+static void btnsel_profile(char *name, const char *var, const char *fallback)
 {
-	char buf[BTNSEL_CONF_MAX + 16];
+	const char *s = env_get(var);
+	size_t i, n = s ? strlen(s) : 0;
 
-	if (slot && *slot) {
-		/* sizeof(STR) - sizeof(SUFFIX), both counting their own NUL,
-		 * cancels down to strlen(STR) - strlen(SUFFIX): the length of
-		 * conf before its known ".conf" suffix. */
-		size_t base_len = conf_size - sizeof(".conf");
-
-		snprintf(buf, sizeof(buf), "%.*s-%s.conf",
-			 (int)base_len, conf, slot);
-		conf = buf;
+	for (i = 0; i < n; i++)
+		if (!isalnum(s[i]) && s[i] != '-' && s[i] != '_')
+			break;
+	if (n == 0 || n > BTNSEL_NAME_MAX || i < n) {
+		if (n)
+			printf("btnsel: $%s is not a profile name, using %s\n",
+			       var, fallback);
+		s = fallback;
 	}
+	strlcpy(name, s, BTNSEL_NAME_MAX + 1);
+}
+
+/*
+ * $bootconf for the legacy tail (hush expands ${var} only one level, so the
+ * env strings cannot build that name themselves). nixbadge_try runs btnsel
+ * with rauc_slot set but only uses $target; nixbadge_legacy clears rauc_slot
+ * first and gets the per-profile conf without a slot suffix, the only one an
+ * ext4-mbr card has.
+ */
+static void btnsel_set_conf(const char *target, const char *slot)
+{
+	char conf[sizeof(BTNSEL_CONF_DIR "/extlinux--.conf") + BTNSEL_NAME_MAX + 16];
+	int n;
+
+	if (!strcmp(target, "default"))
+		return;
+	if (slot && *slot)
+		n = snprintf(conf, sizeof(conf), BTNSEL_CONF_DIR "/extlinux-%s-%s.conf",
+			     target, slot);
+	else
+		n = snprintf(conf, sizeof(conf), BTNSEL_CONF_DIR "/extlinux-%s.conf",
+			     target);
+	if (n < 0 || n >= (int)sizeof(conf))
+		return;
 	env_set("bootconf", conf);
-	printf("btnsel: %s (%s)\n", what, conf);
+	printf("btnsel: conf %s\n", conf);
 }
 
 static int do_btnsel(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 {
-	const char *slot = env_get("rauc_slot");
-	const char *target = "default";
+	char target[BTNSEL_NAME_MAX + 1];
+	const char *args = "";
+	const char *what;
+	int boot = boot_btn_held();
+	int user = user_btn_held();
 
-	if (boot_btn_held()) {
-		target = "desktop";
-		btnsel_set_conf(BTNSEL_DESKTOP_CONF, sizeof(BTNSEL_DESKTOP_CONF),
-				slot, "BOOT held -> desktop");
+	if (boot && user) {
+		what = "BOOT and USER held, factory reset";
+		btnsel_profile(target, "nixbadge_profile_default", "default");
+		args = BTNSEL_RESET_ARGS;
+	} else if (boot) {
+		what = "BOOT held";
+		btnsel_profile(target, "nixbadge_profile_boot", "desktop");
+	} else if (user) {
+		what = "USER held";
+		btnsel_profile(target, "nixbadge_profile_user", "video");
 	} else {
-		printf("btnsel: BOOT not held -> default profile (hold BOOT for desktop)\n");
+		what = "no button held";
+		btnsel_profile(target, "nixbadge_profile_default", "default");
 	}
+	printf("btnsel: %s -> %s\n", what, target);
 
-	/* USER is sampled after BOOT and overrides it: both held -> video. */
-	if (user_btn_held()) {
-		target = "video";
-		btnsel_set_conf(BTNSEL_VIDEO_CONF, sizeof(BTNSEL_VIDEO_CONF),
-				slot, "USER held -> video");
-	} else {
-		printf("btnsel: USER not held (hold USER for video)\n");
-	}
-
+	btnsel_set_conf(target, env_get("rauc_slot"));
+	/* An empty value deletes the variable: ${nixbadge_args} expands to "". */
+	env_set("nixbadge_args", args);
 	env_set("target", target);
 	printf("btnsel: target %s\n", target);
 	return 0;
 }
 
 U_BOOT_CMD(btnsel, 1, 0, do_btnsel,
-	   "set $target and $bootconf from the BOOT (desktop) and USER (video) buttons",
-	   "  - read BOOT (XGPIOB 0x03021000 line 4, active low) for ~80ms:\n"
-	   "    held throughout -> $target=desktop and the desktop conf; otherwise\n"
-	   "    leave $bootconf alone. The USB_ID pad is muxed to XGPIOB_4 for the\n"
-	   "    read and restored afterwards. Then read USER (RTC GPIO 0x05021000\n"
-	   "    line 2, active low, pad PWR_GPIO2) the same way: held throughout ->\n"
-	   "    $target=video and the video conf, overriding BOOT if both are held.\n"
-	   "    $target is \"default\" when neither is held. With $rauc_slot set the\n"
-	   "    conf is extlinux-<profile>-<slot>.conf, else extlinux-<profile>.conf.\n"
+	   "set $target, $nixbadge_args and $bootconf from the BOOT and USER buttons",
+	   "  - read BOOT (XGPIOB 0x03021000 line 4, active low) and USER (RTC GPIO\n"
+	   "    0x05021000 line 2, active low, pad PWR_GPIO2) for ~80ms each; a\n"
+	   "    button is held only if it reads low throughout. Pad mux and\n"
+	   "    direction are restored afterwards.\n"
+	   "      neither -> $target=$nixbadge_profile_default\n"
+	   "      BOOT    -> $target=$nixbadge_profile_boot\n"
+	   "      USER    -> $target=$nixbadge_profile_user\n"
+	   "      both    -> $target=$nixbadge_profile_default and\n"
+	   "                 $nixbadge_args=" BTNSEL_RESET_ARGS "\n"
+	   "    $nixbadge_args is cleared otherwise. Unset or invalid profile names\n"
+	   "    fall back to default, desktop and video. A target other than\n"
+	   "    default sets $bootconf to extlinux-<target>[-<rauc_slot>].conf.\n"
 	   "    Runs from bootcmd, i.e. AFTER the autoboot countdown, so hold\n"
-	   "    the button while STAT is blinking. It never fails.");
+	   "    the buttons while STAT is blinking. It never fails.");

@@ -3,13 +3,18 @@
 # Upstream OpenSBI PLATFORM=generic, dynamic firmware only (no payload; the FSBL
 # loads U-Boot separately and passes next-stage info via the dynamic-info struct).
 #
-# Generic OpenSBI requires a device tree (console UART, CLINT/timer, PLIC, memory).
-# The FSBL passes a1=0x80080000 but nothing places a valid DTB there in a clean
-# build, so FW_FDT_PATH embeds one (OpenSBI forwards it to U-Boot, which ignores it
-# via CONFIG_OF_EMBED). `dtb` is the kernel-coupled RISC-V DTB derivation (dir with
-# sophgo/sg2000-milkv-duo-s.dtb), passed in by the consumer (badgeos). Standalone
-# builds default dtb = null: OpenSBI still builds (no FW_FDT_PATH), enough to verify
-# the build but not to boot.
+# Generic OpenSBI requires a device tree (console UART, CLINT/timer, PLIC, hart).
+# The FSBL passes a1=0x80080000 but nothing places a valid DTB there, so
+# FW_FDT_PATH embeds ./opensbi.dts, which carries only the nodes OpenSBI reads.
+# OpenSBI copies it to a1 (0x80080000) and hands it to U-Boot, which ignores it
+# (CONFIG_OF_EMBED); Linux gets its DTB from the FIT.
+#
+# The image, its stack and heap must end below that copy and inside the 512 KiB
+# Linux reserves for M-mode (mmode_resv0). The linker rounds the RX part up to a
+# power of two for PMP, so the RX part must stay under 256 KiB; a full board DTB
+# pushes it over and puts the R/W part on top of the FDT copy.
+#
+# `dtb` is accepted for older callers and ignored.
 #
 # Source: opensbi v1.8.1 (nixpkgs pin). Toolchain: riscv64-unknown-linux-gnu.
 # $out is fw_dynamic.bin directly, so it drops into fip.nix's MONITOR slot.
@@ -20,6 +25,7 @@
   opensbi,
   python3,
   gnumake,
+  dtc,
   dtb ? null,
 }:
 let
@@ -29,52 +35,67 @@ let
   # riscv64-unknown-linux-gnu cross toolchain available from nixpkgs.
   crossGcc = pkgsCross.riscv64.buildPackages.gcc;
   crossPrefix = crossGcc.targetPrefix;
-
-  # Optional embedded FDT: only when the consumer passes its DTB. OpenSBI
-  # generic consumes cpu/clint/plic/uart/memory from it.
-  fdtArg = lib.optionalString (dtb != null) "FW_FDT_PATH=${dtb}/sophgo/sg2000-milkv-duo-s.dtb";
 in
-stdenv.mkDerivation {
-  pname = "opensbi-fw-dynamic";
-  inherit version src;
+lib.warnIf (dtb != null) "opensbi: `dtb` is ignored; OpenSBI embeds pkgs/opensbi/opensbi.dts"
+  stdenv.mkDerivation
+  {
+    pname = "opensbi-fw-dynamic";
+    inherit version src;
 
-  nativeBuildInputs = [
-    crossGcc
-    crossGcc.bintools
-    python3
-    gnumake
-  ];
+    nativeBuildInputs = [
+      crossGcc
+      crossGcc.bintools
+      python3
+      gnumake
+      dtc
+    ];
 
-  # OpenSBI scripts have Python shebangs; patch them so Nix sandbox finds
-  # the interpreter.
-  postPatch = ''
-    patchShebangs ./scripts
-  '';
+    # OpenSBI scripts have Python shebangs; patch them so Nix sandbox finds
+    # the interpreter.
+    postPatch = ''
+      patchShebangs ./scripts
+    '';
 
-  buildPhase = ''
-    export PATH=${crossGcc}/bin:${crossGcc.bintools.bintools}/bin:$PATH
-    # SOURCE_DATE_EPOCH=1 makes OpenSBI's Makefile use a fixed epoch for
-    # OPENSBI_BUILD_TIME_STAMP instead of date(1), for a reproducible build.
-    export SOURCE_DATE_EPOCH=1
+    buildPhase = ''
+      export PATH=${crossGcc}/bin:${crossGcc.bintools.bintools}/bin:$PATH
+      # SOURCE_DATE_EPOCH=1 makes OpenSBI's Makefile use a fixed epoch for
+      # OPENSBI_BUILD_TIME_STAMP instead of date(1), for a reproducible build.
+      export SOURCE_DATE_EPOCH=1
 
-    make -j$NIX_BUILD_CORES \
-      PLATFORM=generic \
-      CROSS_COMPILE=${crossPrefix} \
-      FW_DYNAMIC=y \
-      FW_JUMP=n \
-      FW_PAYLOAD=n \
-      ${fdtArg}
-  '';
+      dtc -I dts -O dtb -o opensbi.dtb ${./opensbi.dts}
 
-  installPhase = ''
-    install -D build/platform/generic/firmware/fw_dynamic.bin "$out"
-  '';
+      make -j$NIX_BUILD_CORES \
+        PLATFORM=generic \
+        CROSS_COMPILE=${crossPrefix} \
+        FW_DYNAMIC=y \
+        FW_JUMP=n \
+        FW_PAYLOAD=n \
+        FW_FDT_PATH=$PWD/opensbi.dtb
+    '';
 
-  dontStrip = true;
-  dontPatchELF = true;
+    # _fw_end is relative to FW_TEXT_START (0, position independent). One hart's
+    # stack and heap fit in 64 KiB; all of it must end before a1 = start + 512 KiB.
+    doCheck = true;
+    checkPhase = ''
+      fw_end=$((0x$(${crossPrefix}nm build/platform/generic/firmware/fw_dynamic.elf | sed -n 's/ [A-Za-z] _fw_end$//p')))
+      rw_start=$((0x$(${crossPrefix}nm build/platform/generic/firmware/fw_dynamic.elf | sed -n 's/ [A-Za-z] _fw_rw_start$//p')))
+      printf 'opensbi: fdt %d B, rw at %#x, end %#x (+64 KiB stack/heap, limit 0x80000)\n' \
+        "$(stat -c %s opensbi.dtb)" "$rw_start" "$fw_end"
+      if [ $((fw_end + 0x10000)) -gt $((0x80000)) ]; then
+        echo "opensbi: image reaches the FDT handoff at +0x80000" >&2
+        exit 1
+      fi
+    '';
 
-  meta = {
-    description = "OpenSBI fw_dynamic for RISC-V MONITOR slot (SG2000 / Milk-V Duo S)";
-    license = lib.licenses.bsd2;
-  };
-}
+    installPhase = ''
+      install -D build/platform/generic/firmware/fw_dynamic.bin "$out"
+    '';
+
+    dontStrip = true;
+    dontPatchELF = true;
+
+    meta = {
+      description = "OpenSBI fw_dynamic for RISC-V MONITOR slot (SG2000 / Milk-V Duo S)";
+      license = lib.licenses.bsd2;
+    };
+  }

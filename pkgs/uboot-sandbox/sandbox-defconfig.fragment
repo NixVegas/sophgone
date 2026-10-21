@@ -26,3 +26,5 @@
 # CONFIG_CMD_PART is not set
 # CONFIG_CMD_FS_GENERIC is not set
 CONFIG_SANDBOX_RAM_SIZE_MB=2304
+# the `reset` stand-in replaces the sysreset do_reset
+# CONFIG_SYSRESET_CMD_RESET is not set

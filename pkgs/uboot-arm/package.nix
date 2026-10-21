@@ -124,7 +124,7 @@ stdenv.mkDerivation {
     cat ${kconfigSysTextBase} >> board/cvitek/cv181x/Kconfig
 
     # Core-select latch (strapsel) + BOOT/USER-button profile-select (btnsel), both
-    # appended to cmd/efuse.c with btnsel's per-core desktop + video conf paths.
+    # appended to cmd/efuse.c with btnsel's per-core extlinux directory.
     ${wireCommands}
 
     # Patch 3: provide the missing arm control DTS. The vendor tree has none, but

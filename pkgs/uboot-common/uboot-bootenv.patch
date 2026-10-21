@@ -20,12 +20,12 @@
 +#endif
 +
 +/* Write-list for the stored environment (CONFIG_ENV_WRITEABLE_LIST, set in
-+ * the defconfig): only these four may be overwritten by env_import_redund()
++ * the defconfig): only these may be overwritten by env_import_redund()
 + * at boot ('w'); everything else stays compiled-in. This is not a Kconfig
 + * symbol in this tree: env/flags.c reads it through include/env_flags.h's
 + * `#ifndef CONFIG_ENV_FLAGS_LIST_STATIC` fallback, so it is #define'd here
 + * (a defconfig line is silently dropped). 's' = string, 'd' = decimal.
 + */
 +#define CONFIG_ENV_FLAGS_LIST_STATIC \
-+    "BOOT_ORDER:sw,BOOT_A_LEFT:dw,BOOT_B_LEFT:dw,env_loaded:sw"
++    "BOOT_ORDER:sw,BOOT_A_LEFT:dw,BOOT_B_LEFT:dw,env_loaded:sw,nixbadge_fuse_serial:sw,nixbadge_fuse_return:sw,nixbadge_profile_default:sw,nixbadge_profile_boot:sw,nixbadge_profile_user:sw"
  #endif /* __CV181X_ASIC_H__ */

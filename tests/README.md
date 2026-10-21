@@ -23,8 +23,8 @@ exit on the first failing case. A second, optional argument is the
 core `NIXBADGE_CORE` stands for (default `arm`); run it once more with
 `riscv`. The test takes `core` from the converted file and uses it in
 the expected `sysboot` and FIT paths, so the riscv run really exercises
-`core=riscv`. The sandbox's `btnsel` is compiled with the arm desktop
-and video paths, so both runs expect `/arm/...` for those.
+`core=riscv`. The sandbox's `btnsel` is compiled with the arm extlinux
+directory, so both runs expect `/arm/...` for the profile confs.
 
 Each `u-boot -c` invocation takes a few seconds (the sandbox has 2304 MiB of
 RAM so the product's real load addresses fit); a full run is about 100
@@ -34,5 +34,9 @@ The sandbox's `part`, `sysboot`, `load` and `btnsel` are driven by env vars
 the test sets (`sb_parts`, `sb_files`, `sb_dir`, `sb_btn`, `sb_user`,
 `sb_show`); the script header and `pkgs/uboot-sandbox/package.nix` describe
 them. The cases cover the slot walk, envpick, a legacy ext4-mbr card, gpt
-cards booting each slot's signed FIT (with fallbacks), and the signed-FIT
-failure modes, including the secure build's env ending in `nixbadge_halt`.
+cards booting each slot's signed FIT (with fallbacks), the signed-FIT
+failure modes, including the secure build's env ending in `nixbadge_halt`, and
+the `nixbadge_fuseonce` step: the real `nixbadge_fuse`, `devek`, `trng` and
+`strapsel` code over a fake eFuse, TRNG and core-select latch (`sb_core`,
+`sb_switch`, `sb_fused`, `sb_devek`, `sb_efuse`, `sb_efuser`, `sb_lock`,
+`sb_trng`), with `reset` printing `RESET`.

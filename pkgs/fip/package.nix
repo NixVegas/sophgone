@@ -20,6 +20,7 @@
   runCommand,
   core ? "arm",
   dumpRom ? false,
+  # Ignored: OpenSBI embeds pkgs/opensbi/opensbi.dts. Kept for older callers.
   dtb ? null,
 }:
 let
@@ -76,4 +77,12 @@ runCommand "sg2000-fip-${core}.bin"
       --MONITOR=${monitor} \
       --LOADER_2ND=${uboot}/u-boot-raw.bin \
       --compress=lzma
+
+    # The boot media layout holds at most 1 MiB of fip.
+    size=$(stat -c %s "$out")
+    echo "fip size $size B, ceiling 1048576 B, headroom $((1048576 - size)) B"
+    if [ "$size" -gt 1048576 ]; then
+      echo "fip is $((size - 1048576)) B over the 1048576 B ceiling" >&2
+      exit 1
+    fi
   ''

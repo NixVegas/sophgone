@@ -1,4 +1,4 @@
-setenv bootargs "${verityargs} rauc.slot=${rauc_slot} ${rauc_ext} nixbadge.profile=default"
+setenv bootargs "${verityargs} rauc.slot=${rauc_slot} ${rauc_ext} nixbadge.profile=default ${nixbadge_args}"
 bootm ${loadaddr}#conf-default
 echo nixbadge: bootm conf-default returned
 false

@@ -22,6 +22,7 @@
   runCommand,
   writeTextFile,
   variant ? "polyglot",
+  # Ignored: OpenSBI embeds pkgs/opensbi/opensbi.dts. Kept for older callers.
   dtb ? null,
 }:
 let

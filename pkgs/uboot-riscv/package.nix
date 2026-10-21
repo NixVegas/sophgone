@@ -66,9 +66,7 @@ let
   memmap = ./duos-riscv-uboot-memmap.h;
   cvipart = ../uboot-common/cvipart.h;
 
-  # riscv-only commands appended to cmd/efuse.c (see each file's header).
-  trngCmd = ./cvi-trng-cmd.c;
-  devekCmd = ./cvi-devek-cmd.c;
+  # riscv-only command appended to cmd/efuse.c (see the file's header).
   efuserawCmd = ./cvi-efuseraw-cmd.c;
   # Fix: on riscv the LOCK-word (0xF8) write returns -5 (-EIO). The margin-read
   # verify in cvi_efuse_write_word false-negatives on that protected row even
@@ -131,14 +129,8 @@ stdenv.mkDerivation {
     cat ${kconfigSysTextBase} >> board/cvitek/cv181x/Kconfig
 
     # Core-select latch (strapsel) + BOOT/USER-button profile-select (btnsel), both
-    # appended to cmd/efuse.c with btnsel's per-core desktop + video conf paths.
+    # appended to cmd/efuse.c with btnsel's per-core extlinux directory.
     ${wireCommands}
-
-    # `trng` (EIP-76 TRNG bring-up), then `devek` (uses cvi_trng_read4 + CVI_EFUSE_*),
-    # appended to cmd/efuse.c. Order matters: devek needs trng; devek needs
-    # CONFIG_SHA256 (defconfig).
-    cat ${trngCmd} >> cmd/efuse.c
-    cat ${devekCmd} >> cmd/efuse.c
 
     # `efuseraw`/`efusedumpraw`: true physical fuse read (bypasses the secure shadow).
     # Uses cvi_efuse_read_from_phy (static, earlier in the TU), so append after the

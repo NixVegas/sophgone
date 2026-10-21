@@ -33,11 +33,11 @@
       # called view for this repo comes from packagesFromDirectoryRecursive below.
       lib = {
         # benign FIP generation
-        fip = import ./pkgs/fip/package.nix; # { core ? "arm", dumpRom ? false, dtb ? null }
-        fipPolyglot = import ./pkgs/fip-polyglot/package.nix; # { dtb ? null, secureBoot ? false, secureUboot ? false, fitKeyCert ? null }
+        fip = import ./pkgs/fip/package.nix; # { core ? "arm", dumpRom ? false }
+        fipPolyglot = import ./pkgs/fip-polyglot/package.nix; # { secureBoot ? false, secureUboot ? false, fitKeyCert ? null }
         fsbl = import ./pkgs/fsbl/package.nix; # { core ? "arm", dumpRom ? false, slot ? "primary" }
         bl31Blob = import ./pkgs/bl31-blob/package.nix;
-        opensbi = import ./pkgs/opensbi/package.nix; # { dtb ? null }
+        opensbi = import ./pkgs/opensbi/package.nix; # embeds pkgs/opensbi/opensbi.dts
         ubootArm = import ./pkgs/uboot-arm/package.nix; # { secure ? false, fitKeyCert ? null }
         ubootRiscv = import ./pkgs/uboot-riscv/package.nix; # { secure ? false, fitKeyCert ? null }
         ubootSandbox = import ./pkgs/uboot-sandbox/package.nix; # offline HUSH test harness, see tests/hush-rauc-walk.sh
@@ -49,7 +49,7 @@
         #   slot swapped for overflowBl2); written to SD as fip.bin, paired with
         #   fipPolyglot as sophg.1.
         overflowBl2 = import ./pkgs/overflow-bl2/package.nix; # { variant ? "polyglot" }
-        chainloadFip = import ./pkgs/chainload/package.nix; # { variant ? "polyglot", dtb ? null }
+        chainloadFip = import ./pkgs/chainload/package.nix; # { variant ? "polyglot" }
 
         # signFip: Route B, sg1-sb signs a FIP via the autopen daemon; emits the
         #   signed fip.bin + KPUB_HASH. { fip, blCert?, rootCert?, blPkSig?, ... }

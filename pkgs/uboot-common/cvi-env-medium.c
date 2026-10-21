@@ -94,7 +94,7 @@ int mmc_get_env_addr(struct mmc *mmc, int copy, u32 *env_addr)
  * NOWHERE must load first: an H_EXTERNAL import starts from an empty table
  * unless H_NOCLEAR is set (lib/hashtable.c), and CONFIG_ENV_WRITEABLE_LIST
  * rejects every variable without the 'w' flag (env/flags.c), so an MMC-only
- * load would leave just the four write-listed variables and no bootcmd.
+ * load would leave just the six write-listed variables and no bootcmd.
  * CONFIG_ENV_APPEND makes env_load() continue past the first driver and adds
  * H_NOCLEAR to every import, so MMC's variables merge onto the defaults.
  *
