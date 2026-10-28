@@ -6,11 +6,13 @@
  * Every image is signed (sg1-image-img, the required = "image" key) and every
  * configuration is signed (sg1-image, the required = "conf" key). arch is
  * "sandbox" because only the sandbox U-Boot boots this; the kernel is a 64 KiB
- * dummy and the fdt an empty tree.
+ * dummy and the fdt an empty tree. nixbadge-datacard = "1" says the system has data
+ * cards on, so U-Boot may boot a data card's FIT for the slot instead.
  */
 /dts-v1/;
 / {
 	description = "nix-badge test fixture: slot boot FIT";
+	nixbadge-datacard = "1";
 	#address-cells = <1>;
 	images {
 		kernel {

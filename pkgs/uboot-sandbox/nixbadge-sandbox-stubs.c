@@ -3,7 +3,10 @@
  * set it also models a missing conf (return 1) and a successful boot (print,
  * exit 0). load copies a fixture file named by $sb_files from $sb_dir into RAM.
  * sdready echoes a marker and always fails. part answers `uuid` and `start`
- * from $sb_parts / $sb_ubs.
+ * from $sb_parts / $sb_ubs, and `number` (a partition by name). Per-device
+ * $sb_parts<dev> (`<n>:<name>` words), $sb_files<dev> and $sb_dir<dev> model a second
+ * card; without them $sb_parts, $sb_files and $sb_dir stand for whichever device is
+ * asked.
  */
 #include <common.h>
 #include <command.h>
@@ -30,6 +33,50 @@ static int nixbadge_sb_has(const char *list, const char *word)
 			p++;
 	}
 	return 0;
+}
+
+/* The `<n>:<name>` word of $sb_parts<dev> whose number is `num` (match on
+ * "num:") or whose name is `name` (match on ":name"); its number in *out. */
+static int nixbadge_sb_part(const char *dev, const char *num, const char *name,
+			    char *out, size_t outlen)
+{
+	char var[24];
+	const char *l, *p;
+
+	snprintf(var, sizeof(var), "sb_parts%s", dev);
+	l = env_get(var);
+	if (!l)
+		return -1;
+	for (p = l; *p; ) {
+		const char *w, *c;
+		size_t n;
+
+		while (*p == ' ')
+			p++;
+		w = p;
+		while (*p && *p != ' ')
+			p++;
+		n = p - w;
+		c = memchr(w, ':', n);
+		if (!c)
+			continue;
+		if ((num && (size_t)(c - w) == strlen(num) && !strncmp(w, num, c - w)) ||
+		    (name && (size_t)(w + n - c - 1) == strlen(name) &&
+		     !strncmp(c + 1, name, w + n - c - 1))) {
+			snprintf(out, outlen, "%.*s", (int)(c - w), w);
+			return 0;
+		}
+	}
+	return 1;
+}
+
+/* The device of a `dev[:part]` argument, into buf. */
+static const char *nixbadge_sb_dev(const char *arg, char *buf, size_t len)
+{
+	const char *c = strchr(arg, ':');
+
+	snprintf(buf, len, "%.*s", c ? (int)(c - arg) : (int)strlen(arg), arg);
+	return buf;
 }
 
 /* A boot happened and, like a real one, never returns: print "BOOTED <what>"
@@ -107,17 +154,29 @@ U_BOOT_CMD(sdready, 1, 0, do_nixbadge_stub_sdready,
 static int do_nixbadge_stub_part(struct cmd_tbl *cmdtp, int flag, int argc,
 				  char *const argv[])
 {
-	char val[32];
+	char val[32], dev[16], num[16];
 	const char *n;
+	int r;
 
 	if (argc == 5 && !strcmp(argv[1], "uuid")) {
 		n = strchr(argv[3], ':');
-		if (n && nixbadge_sb_has("sb_parts", n + 1)) {
+		r = n ? nixbadge_sb_part(nixbadge_sb_dev(argv[3], dev, sizeof(dev)),
+					 n + 1, NULL, num, sizeof(num)) : 1;
+		if (n && (r == 0 || (r < 0 && nixbadge_sb_has("sb_parts", n + 1)))) {
 			snprintf(val, sizeof(val), "sbuuid-%s", n + 1);
 			env_set(argv[4], val);
 			return CMD_RET_SUCCESS;
 		}
 		printf("** No partition %s **\n", argv[3]);
+		return CMD_RET_FAILURE;
+	}
+	if (argc == 6 && !strcmp(argv[1], "number")) {
+		if (!nixbadge_sb_part(argv[3], NULL, argv[4], num, sizeof(num))) {
+			snprintf(val, sizeof(val), "0x%lx", simple_strtoul(num, NULL, 10));
+			env_set(argv[5], val);
+			return CMD_RET_SUCCESS;
+		}
+		printf("** No partition %s on %s %s **\n", argv[4], argv[2], argv[3]);
 		return CMD_RET_FAILURE;
 	}
 	if (argc == 6 && !strcmp(argv[1], "start") && env_get("sb_ubs")) {
@@ -129,13 +188,14 @@ static int do_nixbadge_stub_part(struct cmd_tbl *cmdtp, int flag, int argc,
 }
 
 U_BOOT_CMD(part, 6, 0, do_nixbadge_stub_part,
-	   "nixbadge uboot-sandbox test stub: answers uuid/start from $sb_parts/$sb_ubs",
+	   "nixbadge uboot-sandbox test stub: answers uuid/start/number from $sb_parts[<dev>]/$sb_ubs",
 	   "");
 
 static int do_nixbadge_stub_load(struct cmd_tbl *cmdtp, int flag, int argc,
 				  char *const argv[])
 {
-	const char *dir = env_get("sb_dir");
+	const char *dir;
+	char files[24], dirvar[24], dev[16];
 	char fname[512];
 	void *buf;
 	void *dst;
@@ -144,7 +204,12 @@ static int do_nixbadge_stub_load(struct cmd_tbl *cmdtp, int flag, int argc,
 
 	if (argc != 5)
 		return CMD_RET_USAGE;
-	if (!dir || !nixbadge_sb_has("sb_files", argv[4]) ||
+	snprintf(files, sizeof(files), "sb_files%s", nixbadge_sb_dev(argv[2], dev, sizeof(dev)));
+	if (!env_get(files))
+		strcpy(files, "sb_files");
+	snprintf(dirvar, sizeof(dirvar), "sb_dir%s", dev);
+	dir = env_get(dirvar) ? env_get(dirvar) : env_get("sb_dir");
+	if (!dir || !nixbadge_sb_has(files, argv[4]) ||
 	    snprintf(fname, sizeof(fname), "%s%s", dir, argv[4]) >= sizeof(fname) ||
 	    os_read_file(fname, &buf, &size)) {
 		printf("** Unable to read file %s **\n", argv[4]);
@@ -161,7 +226,7 @@ static int do_nixbadge_stub_load(struct cmd_tbl *cmdtp, int flag, int argc,
 }
 
 U_BOOT_CMD(load, 5, 0, do_nixbadge_stub_load,
-	   "nixbadge uboot-sandbox test stub: copies $sb_dir<path> to <addr> if <path> is in $sb_files",
+	   "nixbadge uboot-sandbox test stub: copies $sb_dir[<dev>]<path> to <addr> if <path> is in $sb_files[<dev>]",
 	   "<interface> <dev:part> <addr> <path>");
 
 /* The secure walk's end (pkgs/uboot-common/cvi-halt-cmd.c idles forever on

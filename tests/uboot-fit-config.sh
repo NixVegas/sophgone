@@ -6,8 +6,9 @@
 #
 # both:   `fdt` linked (do_fdt: nixbadge_fit tells an absent profile script from a
 #         failed one with `fdt addr` + `fdt get`), bootm's gzip path (gunzip,
-#         image_decomp: badgeos' boot.itb carries a gzip-compressed kernel), and
-#         nixbadge_fuse (the board identity, cvi-fuse-cmd.c).
+#         image_decomp: badgeos' boot.itb carries a gzip-compressed kernel),
+#         nixbadge_fuse (the board identity, cvi-fuse-cmd.c) and `part number`
+#         (nixbadge_cardfit).
 # plain:  FIT parsing linked (fit_image_verify), NO RSA verifier, extlinux boot kept
 #         (do_sysboot, do_booti).
 # secure: RSA + required-signature check linked, no sysboot/booti/pxe, no legacy
@@ -54,6 +55,10 @@ for b in "$PLAIN" "$SECURE"; do
   # nixbadge_fuseonce's command (cvi-fuse-cmd.c) and the reset after it
   want "$b" do_nixbadge_fuse
   want "$b" do_reset
+  # nixbadge_cardfit finds a data card's partitions by name: `part number` (do_part_number
+  # is inlined into do_part; do_part_info does the lookup, and the usage text names it)
+  want "$b" do_part_info
+  grep -aq "part number <interface> <dev> <part> <varname>" "$b/u-boot-raw.bin" || fail "$b: no \`part number\`"
 done
 # trng/devek exist only on riscv (the arm U-Boot cannot reach the TRNG)
 case "$PLAIN" in

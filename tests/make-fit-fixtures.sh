@@ -26,6 +26,8 @@
 #                returns; slot B good
 #     noverity   slot A's vbmeta.itb is validly signed but its frag sets no
 #                verityargs; slot B good
+#     nodatacard slot A's boot.itb lacks nixbadge-datacard (data cards off); slot B good
+#   and in every case /.nixbadge-cardfit-A and -B, a data card's USERDATA markers
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 for t in mkimage fdt_add_pubkey dtc openssl; do
@@ -71,6 +73,9 @@ sign() { mkimage -f "$1" -k "$out/$2" -r "$3" >/dev/null; }
 sign vbmeta.its keys vbmeta.itb
 sign boot.its keys boot.itb
 sign boot.its other-keys boot-othersig.itb
+# without nixbadge-datacard: a system with data cards off
+sed '/nixbadge-datacard/d' boot.its > boot-nodatacard.its
+sign boot-nodatacard.its keys boot-nodatacard.itb
 cp boot.itb boot-tampered.itb
 off=$(grep -abo -m1 NIXBADGE-FIXTURE-KERNEL boot-tampered.itb | head -n1 | cut -d: -f1)
 [ -n "$off" ] || { echo "kernel marker not found in boot.itb" >&2; exit 1; }
@@ -107,4 +112,10 @@ mkcase badsig boot-othersig.itb
 mkcase tampered boot-tampered.itb
 mkcase profilefail boot-profilefail.itb
 mkcase noverity boot.itb vbmeta-noverity.itb
+mkcase nodatacard boot-nodatacard.itb
+# A data card's USERDATA marks the slots whose card FIT is current (badgeos's installer
+# writes the marker, stage 0 removes it when the card's Nix layer for the slot goes).
+for c in good badsig tampered profilefail noverity nodatacard; do
+  for s in A B; do printf 'card generation %s\n' "$s" > "$out/$c/.nixbadge-cardfit-$s"; done
+done
 echo "fixtures in $out"
