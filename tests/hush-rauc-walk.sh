@@ -422,44 +422,47 @@ echo "$out" | grep -qxF 'btnsel: $nixbadge_profile_default is not a profile name
 #  14d. a stored nixbadge_args is never imported (and btnsel clears it regardless)
 stored 'setenv nixbadge_args nixbadge.reset=userdata' 'nixbadge_args BOOT_ORDER'
 echo "$out" | grep -qxF 'P=[]' && echo "$out" | grep -qxF 'T=default' || { echo "FAIL 14d (stored nixbadge_args imported): $out"; exit 1; }
-# 15. data cards: on an eMMC boot (mmc 1), a card in mmc 0 with BOOT and USERDATA
-#     partitions and no NIX_A supplies boot.itb from its BOOT (vbmeta stays the
-#     eMMC's) while its USERDATA has /.nixbadge-cardfit-<slot> and the eMMC's own FIT for
+# 15. data cards: on an eMMC boot (mmc 1), a card in mmc 0 with BOOT and EXT_USERDATA
+#     partitions supplies boot.itb from its BOOT (vbmeta stays the eMMC's) while its
+#     EXT_USERDATA has /.nixbadge-cardfit-<slot> and the eMMC's own FIT for
 #     the slot has nixbadge-datacard, and nixbadge.cardfit=1 is appended; otherwise, or if
 #     the card's FIT does not boot, the eMMC's FIT boots.
 #  15a. the eMMC's FIT for slot A has nixbadge-datacard, so the card's boots
 cardfile="setenv sb_files0 '/$CORE/slot-A/boot.itb /.nixbadge-cardfit-A'"
-out=$(runf "$fit; setenv sb_files '$fitfiles'; setenv sb_parts0 '1:BOOT 2:USERDATA'; $cardfile; run nixbadge_boot")
+out=$(runf "$fit; setenv sb_files '$fitfiles'; setenv sb_parts0 '1:BOOT 2:EXT_USERDATA'; $cardfile; run nixbadge_boot")
 echo "$out" | grep -qx 'BOOTED bootm' && echo "$out" | grep -qx 'rauc_slot=A' && echo "$out" | grep -q 'nixbadge: slot A boots the FIT on the data card' \
   && echo "$out" | grep -q '^bootargs=.* nixbadge.cardfit=1$' || { echo "FAIL 15a (data card FIT): $out"; exit 1; }
 #  15b. the card has no FIT for the slot
-out=$(runf "$fit; setenv sb_files '$fitfiles'; setenv sb_parts0 '1:BOOT 2:USERDATA'; setenv sb_files0 /none; run nixbadge_boot")
+out=$(runf "$fit; setenv sb_files '$fitfiles'; setenv sb_parts0 '1:BOOT 2:EXT_USERDATA'; setenv sb_files0 /none; run nixbadge_boot")
 echo "$out" | grep -qx 'BOOTED bootm' && echo "$out" | grep -qx 'rauc_slot=A' && ! echo "$out" | grep -q 'nixbadge.cardfit=1' || { echo "FAIL 15b (card without a FIT): $out"; exit 1; }
-#  15c. the card has NIX_A (a boot card, not a data card)
-out=$(runf "$fit; setenv sb_files '$fitfiles'; setenv sb_parts0 '1:BOOT 3:NIX_A 5:USERDATA'; $cardfile; run nixbadge_boot")
-echo "$out" | grep -qx 'BOOTED bootm' && ! echo "$out" | grep -q 'nixbadge.cardfit=1' || { echo "FAIL 15c (card with NIX_A): $out"; exit 1; }
+#  15c. a BadgeOS card (USERDATA, not EXT_USERDATA) is a boot card, not a data card
+out=$(runf "$fit; setenv sb_files '$fitfiles'; setenv sb_parts0 '1:BOOT 2:UBOOT 3:NIX_A 4:NIX_B 5:USERDATA'; $cardfile; run nixbadge_boot")
+echo "$out" | grep -qx 'BOOTED bootm' && ! echo "$out" | grep -q 'nixbadge.cardfit=1' || { echo "FAIL 15c (BadgeOS card): $out"; exit 1; }
+#  15c2. a BadgeOS card turned into a data card keeps its NIX_A and NIX_B
+out=$(runf "$fit; setenv sb_files '$fitfiles'; setenv sb_parts0 '1:BOOT 2:UBOOT 3:NIX_A 4:NIX_B 5:EXT_USERDATA'; $cardfile; run nixbadge_boot")
+echo "$out" | grep -qx 'BOOTED bootm' && echo "$out" | grep -q '^bootargs=.* nixbadge.cardfit=1$' || { echo "FAIL 15c2 (converted card): $out"; exit 1; }
 #  15d. the card has no BOOT
-out=$(runf "$fit; setenv sb_files '$fitfiles'; setenv sb_parts0 '1:USERDATA'; $cardfile; run nixbadge_boot")
+out=$(runf "$fit; setenv sb_files '$fitfiles'; setenv sb_parts0 '1:EXT_USERDATA'; $cardfile; run nixbadge_boot")
 echo "$out" | grep -qx 'BOOTED bootm' && ! echo "$out" | grep -q 'nixbadge.cardfit=1' || { echo "FAIL 15d (card without BOOT): $out"; exit 1; }
 #  15e. an SD boot (mmc 0 is the boot card) never looks at another device
 out=$(runf "$fit; setenv bootmedium 1; setenv mmcdev 0; setenv sb_files '$fitfiles'; setenv sb_parts1 '1:BOOT 2:USERDATA'; setenv sb_files1 '/$CORE/slot-A/boot.itb'; run nixbadge_boot")
 echo "$out" | grep -qx 'BOOTED bootm' && ! echo "$out" | grep -q 'nixbadge.cardfit=1' || { echo "FAIL 15e (SD boot looked for a card): $out"; exit 1; }
 #  15f. a factory reset keeps its token ahead of the card's
-out=$(runf "$fit; setenv sb_files '$fitfiles'; setenv sb_btn held; setenv sb_user held; setenv sb_parts0 '1:BOOT 2:USERDATA'; $cardfile; run nixbadge_boot")
+out=$(runf "$fit; setenv sb_files '$fitfiles'; setenv sb_btn held; setenv sb_user held; setenv sb_parts0 '1:BOOT 2:EXT_USERDATA'; $cardfile; run nixbadge_boot")
 echo "$out" | grep -q '^bootargs=.* nixbadge.reset=userdata nixbadge.cardfit=1$' || { echo "FAIL 15f (factory reset with a card): $out"; exit 1; }
 #  15g. the card's FIT without its marker (the card's Nix layer for the slot was reset
 #       since, or the card was formatted) is stale: the eMMC's FIT boots
-out=$(runf "$fit; setenv sb_files '$fitfiles'; setenv sb_parts0 '1:BOOT 2:USERDATA'; setenv sb_files0 '/$CORE/slot-A/boot.itb'; run nixbadge_boot")
+out=$(runf "$fit; setenv sb_files '$fitfiles'; setenv sb_parts0 '1:BOOT 2:EXT_USERDATA'; setenv sb_files0 '/$CORE/slot-A/boot.itb'; run nixbadge_boot")
 echo "$out" | grep -qx 'BOOTED bootm' && echo "$out" | grep -qx 'rauc_slot=A' && ! echo "$out" | grep -q 'nixbadge.cardfit=1' || { echo "FAIL 15g (stale card FIT): $out"; exit 1; }
 #  15h. the card's FIT loads but does not boot (tampered): the eMMC's own FIT for the
 #       same slot boots, without the token, and the slot keeps its tries
-out=$(runf "$fit; setenv sb_files '$fitfiles'; setenv sb_parts0 '1:BOOT 2:USERDATA'; $cardfile; setenv sb_dir0 $FIX/tampered; run nixbadge_boot")
+out=$(runf "$fit; setenv sb_files '$fitfiles'; setenv sb_parts0 '1:BOOT 2:EXT_USERDATA'; $cardfile; setenv sb_dir0 $FIX/tampered; run nixbadge_boot")
 echo "$out" | grep -qx 'nixbadge: the FIT on the data card did not boot, trying the eMMC' \
   && echo "$out" | grep -qx 'BOOTED bootm' && echo "$out" | grep -qx 'rauc_slot=A' && echo "$out" | grep -qx 'BOOT_A_LEFT=2' \
   && ! echo "$out" | grep -q 'nixbadge.cardfit=1' || { echo "FAIL 15h (bad card FIT): $out"; exit 1; }
 #  15i. the eMMC's FIT lacks nixbadge-datacard (the system has data cards off): the card's
 #       FIT is not looked at
-out=$(runf "$fit; setenv sb_files '$fitfiles'; setenv sb_parts0 '1:BOOT 2:USERDATA'; $cardfile; setenv sb_dir1 $FIX/nodatacard; run nixbadge_boot")
+out=$(runf "$fit; setenv sb_files '$fitfiles'; setenv sb_parts0 '1:BOOT 2:EXT_USERDATA'; $cardfile; setenv sb_dir1 $FIX/nodatacard; run nixbadge_boot")
 echo "$out" | grep -qx 'BOOTED bootm' && echo "$out" | grep -qx 'rauc_slot=A' && ! echo "$out" | grep -q 'nixbadge.cardfit=1' \
   && ! echo "$out" | grep -q 'FIT on the data card' || { echo "FAIL 15i (data cards off): $out"; exit 1; }
 echo PASS
