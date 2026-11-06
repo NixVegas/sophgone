@@ -88,10 +88,7 @@
             bus-width = <4>;
             cap-sd-highspeed;
             cap-mmc-highspeed;
-            sd-uhs-sdr12;
-            sd-uhs-sdr25;
-            sd-uhs-sdr50;
-            sd-uhs-sdr104;
+            no-1-8-v; /* The SD slot is 3.3 V only. */
             no-sdio;
             no-mmc;
             src-frequency = <375000000>;

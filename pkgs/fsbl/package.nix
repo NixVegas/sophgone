@@ -125,6 +125,11 @@ stdenv.mkDerivation {
   postPatch = ''
     mkdir -p build
     cp ${memmap} build/cvi_board_memmap.h
+
+    # Include the 32-byte header so the cache flush covers the whole image.
+    substituteInPlace plat/cv181x/bl2/bl2_opt.c \
+      --replace-fail '		reading_size = dst_size;' \
+                     '		reading_size = dst_size + sizeof(struct loader_2nd_header);'
   ''
   + (
     if core == "riscv" then
