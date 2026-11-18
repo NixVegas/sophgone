@@ -41,13 +41,17 @@
   # certificate of the sg1-image FIT signing key, embedded as the two key nodes.
   secure ? false,
   fitKeyCert ? null,
+  # coreTransfer: the `coreswap` command and the environment that runs it (see
+  # ../uboot-common/package.nix). Not with secure.
+  coreTransfer ? false,
 }:
 assert secure -> fitKeyCert != null;
+assert coreTransfer -> !secure;
 let
   # Core-agnostic U-Boot pieces shared with the arm build: upstream src +
   # version, the strapsel/btnsel commands, the SYS_TEXT_BASE Kconfig and the
   # boot environment. See ../uboot-common/package.nix.
-  common = callPackage ../uboot-common/package.nix { };
+  common = callPackage ../uboot-common/package.nix { inherit coreTransfer; };
   mkFitKeyDtb = callPackage ../uboot-common/fit-key-dtb.nix { };
   secureFragment = ../uboot-common/secure-defconfig.fragment;
   # secure: embed the control DTB with the sg1-image key nodes instead of the one

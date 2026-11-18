@@ -71,8 +71,13 @@ inputs.sophgone.url = "path:./sophgone";
 inputs.sophgone.inputs.nixpkgs.follows = "nixpkgs";
 # then, with your own pkgs:
 sophgone.lib.fipPolyglot { inherit pkgs; }
+sophgone.lib.fipPolyglot { inherit pkgs; coreTransfer = true; }
 sophgone.lib.chainloadFip { inherit pkgs; variant = "polyglot"; }
 ```
+
+`coreTransfer = true` enables an SD-file request to boot the main C906 from an
+ARM-strapped start, returning to ARM when the request is removed. It is opt-in and
+excludes secure boot.
 
 ## Mask ROM RE
 

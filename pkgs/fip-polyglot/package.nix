@@ -15,6 +15,7 @@
   # Ignored: OpenSBI embeds pkgs/opensbi/opensbi.dts. Kept for older callers.
   dtb ? null,
   secureBoot ? false,
+  coreTransfer ? false,
   secureUboot ? false,
   fitKeyCert ? null,
 }:
@@ -55,7 +56,7 @@ let
     patch -d $out -p1 < ${./fiptool-loader-2nd-b-symmetric.patch}
   '';
 
-  bl2 = callPackage ../merge-bl2/package.nix { inherit secureBoot; };
+  bl2 = callPackage ../merge-bl2/package.nix { inherit secureBoot coreTransfer; };
   armFsbl = callPackage ../fsbl/package.nix { core = "arm"; }; # for the shared chip_conf.bin
   armMon = callPackage ../bl31-blob/package.nix { };
   riscvMon = callPackage ../opensbi/package.nix { inherit dtb; };
@@ -63,11 +64,11 @@ let
   # secure-defconfig.fragment); fitKeyCert is then required (the sg1-image cert).
   armUboot = callPackage ../uboot-arm/package.nix {
     secure = secureUboot;
-    inherit fitKeyCert;
+    inherit fitKeyCert coreTransfer;
   };
   riscvUboot = callPackage ../uboot-riscv/package.nix {
     secure = secureUboot;
-    inherit fitKeyCert;
+    inherit fitKeyCert coreTransfer;
   };
 in
 runCommand "sg2000-fip-polyglot.bin"
