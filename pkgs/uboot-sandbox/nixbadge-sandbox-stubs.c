@@ -202,7 +202,7 @@ static int do_nixbadge_stub_load(struct cmd_tbl *cmdtp, int flag, int argc,
 	int size;
 	ulong addr;
 
-	if (argc != 5)
+	if (argc != 5 && argc != 6)
 		return CMD_RET_USAGE;
 	snprintf(files, sizeof(files), "sb_files%s", nixbadge_sb_dev(argv[2], dev, sizeof(dev)));
 	if (!env_get(files))
@@ -215,6 +215,8 @@ static int do_nixbadge_stub_load(struct cmd_tbl *cmdtp, int flag, int argc,
 		printf("** Unable to read file %s **\n", argv[4]);
 		return CMD_RET_FAILURE;
 	}
+	if (argc == 6 && hextoul(argv[5], NULL))
+		size = min((ulong)size, hextoul(argv[5], NULL));
 	addr = hextoul(argv[3], NULL);
 	dst = map_sysmem(addr, size);
 	memcpy(dst, buf, size);
@@ -225,9 +227,9 @@ static int do_nixbadge_stub_load(struct cmd_tbl *cmdtp, int flag, int argc,
 	return CMD_RET_SUCCESS;
 }
 
-U_BOOT_CMD(load, 5, 0, do_nixbadge_stub_load,
+U_BOOT_CMD(load, 6, 0, do_nixbadge_stub_load,
 	   "nixbadge uboot-sandbox test stub: copies $sb_dir[<dev>]<path> to <addr> if <path> is in $sb_files[<dev>]",
-	   "<interface> <dev:part> <addr> <path>");
+	   "<interface> <dev:part> <addr> <path> [bytes]");
 
 /* The secure walk's end (pkgs/uboot-common/cvi-halt-cmd.c idles forever on
  * the board): report and exit the sandbox, like a boot, instead. */

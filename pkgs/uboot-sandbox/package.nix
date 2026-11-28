@@ -16,6 +16,7 @@
 #                  listed one boots (see below).
 #   load           copies $sb_dir<path> into RAM at <addr> if <path> is in
 #                  $sb_files, else fails like a missing file.
+#                  A byte count after <path> bounds the copy.
 #   part           `part uuid` finds partition <n> only if <n> is in $sb_parts
 #                  (value "sbuuid-<n>"); `part start` answers $sb_ubs if set.
 #   sdready        prints "SDREADY-CALLED" and fails.
@@ -31,6 +32,13 @@
 #                  $sb_efuse, $sb_efuser, $sb_lock, $sb_trng model the failure
 #                  cases (see the stubs file).
 #   reset          prints "RESET" and exits.
+#   test -e        on mmc 0:1 answers from $sb_files, and for
+#                  /coreswap.pending from $sb_pending.
+#   fatwrite       prints "CORESWAP-WRITE <path> <bytes>"; fails if
+#                  $sb_write_failure is set, else takes only "riscv\n" for
+#                  /coreswap.pending and sets $sb_pending.
+#   coreswap       `coreswap request` prints "CORESWAP-REQUEST" and succeeds
+#                  if $sb_pending is set and $sb_request_failure is not.
 #
 # A boot never returns, so a successful sysboot, or a bootm that reaches the
 # kernel hand-off, prints "BOOTED <file|bootm>" and one name=value line per
@@ -99,6 +107,16 @@ stdenv.mkDerivation {
     cat ${common.boardUserHeader} ${./nixbadge-sandbox-stubs.c} ${common.strapselCmd} \
       ${common.trngCmd} ${common.devekCmd} ${common.fuseCmd} > cmd/nixbadge-sandbox-stubs.c
     cat ${./nixbadge-sandbox-btnsel.c} ${../uboot-common/cvi-btnsel-cmd.c} > cmd/nixbadge-sandbox-btnsel.c
+    # The core transfer's stand-ins, with the real `test -e` and fatwrite out
+    # of their way.
+    cat ${./nixbadge-sandbox-coreswap.c} >> cmd/nixbadge-sandbox-stubs.c
+    substituteInPlace cmd/test.c \
+      --replace-fail '#include <fs.h>' '#include <fs.h>
+    extern int nixbadge_sb_file_exists(const char *, const char *, const char *, int);' \
+      --replace-fail 'expr = file_exists(ap[1], ap[2], ap[3], FS_TYPE_ANY);' \
+                     'expr = nixbadge_sb_file_exists(ap[1], ap[2], ap[3], FS_TYPE_ANY);'
+    substituteInPlace cmd/fat.c \
+      --replace-fail 'fatwrite,' 'sandbox_real_fatwrite,'
 
     # No-op board_save_time_record()/TIME_RECORDS_FIELD_*, -include'd into
     # every TU via KCFLAGS in buildPhase.

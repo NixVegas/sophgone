@@ -40,3 +40,19 @@ the `nixbadge_fuseonce` step: the real `nixbadge_fuse`, `devek`, `trng` and
 `strapsel` code over a fake eFuse, TRNG and core-select latch (`sb_core`,
 `sb_switch`, `sb_fused`, `sb_devek`, `sb_efuse`, `sb_efuser`, `sb_lock`,
 `sb_trng`), with `reset` printing `RESET`.
+
+`python3 tests/test_coreswap_command.py` compiles the actual U-Boot command
+against mock storage and registers. It checks file validation, occupied retained
+words, request ordering, failed readback rollback and bounded result reporting.
+It does not test hardware retention or C906 execution.
+
+`python3 tests/test_coreswap_hush.py <sandbox u-boot>` takes `nixbadge_coreswap`
+out of `nixbadge.env` as a `coreTransfer = true` build converts it (it resolves
+the preprocessor lines itself, as `hush-rauc-walk.sh` does). It checks the three
+lines a coreTransfer build adds (`nixbadge_boot`, `nixbadge_try`,
+`nixbadge_legacy`), that the default build has none of them, and the mailbox
+addresses against `pkgs/fsbl/coreswap-memmap.h`, then runs the script through
+the vendor HUSH parser. Its cases cover missing, malformed and oversized
+requests, boot-medium guards, pending attempts, failed pending writes, refused
+requests, successful reset and RISC-V mailbox validation. SD writes and the
+request command are sandbox stand-ins.

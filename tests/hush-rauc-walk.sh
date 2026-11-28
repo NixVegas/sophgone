@@ -39,7 +39,8 @@ FIX=$TOP/tests/fixtures/fit/out
 [ -f "$FIX/control.dtb" ] || { echo "no FIT fixtures in $FIX: run sh tests/make-fit-fixtures.sh" >&2; exit 1; }
 # nixbadge.env as the build's preprocessor leaves it: C comments dropped, the
 # `#ifdef CONFIG_CMD_SYSBOOT` block resolved for the plain (sysboot compiled in) or
-# secure (sysboot absent) build, NIXBADGE_CORE replaced. Any other directive fails.
+# secure (sysboot absent) build, each `#ifdef NIXBADGE_CORE_TRANSFER` block resolved
+# for coreTransfer off, NIXBADGE_CORE replaced. Any other directive fails.
 envtext() {
   awk -v v="$1" -v core="$NBCORE" '
     incom { if (sub(/^.*\*\//, "")) incom = 0; else next }
@@ -47,6 +48,10 @@ envtext() {
         rest = substr($0, RSTART + 2)
         if (match(rest, /\*\//)) $0 = substr($0, 1, index($0, "/*") - 1) substr(rest, RSTART + 2)
         else { $0 = substr($0, 1, index($0, "/*") - 1); incom = 1 } } }
+    /^#ifdef NIXBADGE_CORE_TRANSFER$/ { xfer = 1; next }
+    xfer && /^#else$/ { xfer = 2; next }
+    xfer && /^#endif$/ { xfer = 0; next }
+    xfer == 1 { next }
     /^#ifdef CONFIG_CMD_SYSBOOT$/ { inif = 1; keep = (v == "plain"); next }
     inif && /^#else$/ { keep = (v != "plain"); next }
     inif && /^#endif$/ { inif = 0; next }

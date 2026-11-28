@@ -9,6 +9,7 @@
   lib,
   fetchFromGitHub,
   writeText,
+  coreTransfer ? false,
 }:
 rec {
   # Same upstream tree + rev for both cores.
@@ -41,6 +42,9 @@ rec {
   strapselCmd = ./cvi-strapsel-cmd.c;
   btnselCmd = ./cvi-btnsel-cmd.c;
   sdreadyCmd = ./cvi-sdready-cmd.c;
+  # coreswap: the core transfer's request and its result; wired only with
+  # coreTransfer.
+  coreswapCmd = ./cvi-coreswap-cmd.c;
   # nixbadge_halt: the secure build's end of the walk (idles; compiled only with
   # CONFIG_FIT_SIGNATURE, see the file).
   haltCmd = ./cvi-halt-cmd.c;
@@ -97,13 +101,15 @@ rec {
   # include/generated/nixbadge-env.h (rules in nixbadge-env.mk). envMakeArgs
   # are the arguments that build it, appended to the board's own make
   # variables after the defconfig step; the core reaches the file only as
-  # NIXBADGE_CORE.
+  # NIXBADGE_CORE, and coreTransfer as NIXBADGE_CORE_TRANSFER.
   envFile = ./nixbadge.env;
   env2stringAwk = ./env2string.awk;
   envMk = ./nixbadge-env.mk;
   envMakeArgs =
     core:
-    "-f Makefile -f ${envMk} NIXBADGE_ENV=${envFile} NIXBADGE_ENV_AWK=${env2stringAwk} NIXBADGE_CORE=${core} include/generated/nixbadge-env.h";
+    "-f Makefile -f ${envMk} NIXBADGE_ENV=${envFile} NIXBADGE_ENV_AWK=${env2stringAwk} NIXBADGE_CORE=${core} "
+    + lib.optionalString coreTransfer "NIXBADGE_CORE_TRANSFER=y "
+    + "include/generated/nixbadge-env.h";
 
   # Vendor-tree patches applied by both cores via the derivation `patches` attr:
   # hang() -> reset_cpu() (an intermittent early bind failure retries instead of
@@ -123,6 +129,7 @@ rec {
     printf '#define BTNSEL_CONF_DIR "/${core}/extlinux"\n' >> cmd/efuse.c
     cat ${btnselCmd} >> cmd/efuse.c
     cat ${sdreadyCmd} >> cmd/efuse.c
+    ${lib.optionalString coreTransfer "cat ${coreswapCmd} >> cmd/efuse.c"}
     cat ${haltCmd} >> cmd/efuse.c
     cat ${trngCmd} ${devekCmd} ${boardUserHeader} ${fuseCmd} >> cmd/efuse.c
     cat ${statledEarly} >> board/cvitek/cv181x/board.c

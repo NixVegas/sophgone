@@ -13,11 +13,12 @@
   runCommand,
   writeTextFile,
   secureBoot ? false,
+  coreTransfer ? false,
 }:
 let
   armFsbl = callPackage ../fsbl/package.nix {
     core = "arm";
-    inherit secureBoot;
+    inherit secureBoot coreTransfer;
   };
   riscvFsbl = callPackage ../fsbl/package.nix {
     core = "riscv";

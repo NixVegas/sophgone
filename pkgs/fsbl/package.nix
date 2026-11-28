@@ -13,15 +13,18 @@
   pkgsCross,
   fetchFromGitHub,
   writeText,
+  runCommand,
   gnumake,
   python3,
   dtc,
   libfaketime,
   core ? "arm",
   dumpRom ? false,
+  coreTransfer ? false,
   slot ? "primary",
   secureBoot ? false,
 }:
+assert coreTransfer -> (core == "arm" && !secureBoot);
 let
   # Per-core toolchain and build parameters.
   coreAttrs =
@@ -61,6 +64,32 @@ let
   };
 
   memmap = ./duos-arm-memmap.h;
+  # Core transfer (coreTransfer = true, arm only): coreswap-transfer.inc.c is
+  # included into BL2 and starts the main C906 at the entry stub built here,
+  # which reaches it as a C array. coreswap-memmap.h has the RAM addresses for
+  # both and for the address the stub is linked at.
+  transferMemmap = ./coreswap-memmap.h;
+  entryCC = pkgsCross.riscv64-embedded.stdenv.cc;
+  entryPrefix = entryCC.targetPrefix;
+  transferPayloads = runCommand "c906-transfer-payloads" { nativeBuildInputs = [ python3 ]; } ''
+    mkdir -p $out
+    ${entryCC}/bin/${entryPrefix}gcc -march=rv64imac_zicsr_zifencei -mabi=lp64 \
+      -include ${memmap} -include ${transferMemmap} \
+      -c ${./coreswap-entry-riscv.S} -o entry.o
+    entryAddr=$(${entryCC}/bin/${entryPrefix}gcc -E -P -include ${transferMemmap} - <<< CORESWAP_ENTRY_ADDR)
+    ${entryCC}/bin/${entryPrefix}ld --no-relax -Ttext=$entryAddr \
+      -e _start -o $out/entry.elf entry.o
+    ${entryCC}/bin/${entryPrefix}objcopy -O binary $out/entry.elf $out/entry.bin
+    python3 - "$out" <<'PY_ENTRY'
+    from pathlib import Path
+    import sys
+    p = Path(sys.argv[1]); data = (p / "entry.bin").read_bytes()
+    assert 0 < len(data) < 1024
+    (p / "coreswap-entry-payload.h").write_text(
+        "static const unsigned char coreswap_entry_payload[] = {" +
+        ",".join(str(b) for b in data) + "};\n")
+    PY_ENTRY
+  '';
 
   # One-shot mask-ROM dumper (dumpRom = true). The 96 KiB boot ROM (0x18000) is
   # readable only from inside BL2; afterwards the mirror at 0x40000000 reads zero
@@ -200,6 +229,21 @@ stdenv.mkDerivation {
     else
       ""
   )
+  + lib.optionalString coreTransfer ''
+    cp ${./coreswap-transfer.inc.c} plat/cv181x/bl2/coreswap-transfer.inc.c
+    cp ${transferMemmap} plat/cv181x/bl2/coreswap-memmap.h
+    cp ${transferPayloads}/coreswap-entry-payload.h plat/cv181x/bl2/
+    python3 - <<'PY_TRANSFER'
+    from pathlib import Path
+    p = Path("plat/cv181x/bl2/bl2_main.c"); s = p.read_text()
+    assert s.count('\tload_rest();') == 1
+    s = s.replace('#include <cpu.h>', '#include <cpu.h>\nvoid coreswap_transfer_request(void);')
+    s = s.replace('\tload_rest();', '\tcoreswap_transfer_request();\n\tload_rest();')
+    p.write_text(s)
+    p = Path("plat/cv181x/bl2/bl2_opt.c")
+    p.write_text(p.read_text() + '\n#include "coreswap-transfer.inc.c"\n')
+    PY_TRANSFER
+  ''
   + (
     if dumpRom then
       ''
