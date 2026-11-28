@@ -61,7 +61,7 @@ with tempfile.TemporaryDirectory(prefix="coreswap-hush-") as directory:
            "mw.l 84000000 0 10; mw.b 86002008 a5; ")
 
     def check(name, setup='', content=b'riscv\n', result='disabled', write=False,
-              request=False, reset=False):
+              request=False, reset=False, ack=False):
         fixture.write_bytes(content)
         setup = setup.strip().rstrip(';').strip()
         run = pre + (setup + '; ' if setup else '') + 'run nixbadge_coreswap; printenv nixbadge_coreswap_result; if itest.b *0x86002008 == a5; then echo CORESWAP-SENTINEL-OK; fi'
@@ -71,6 +71,7 @@ with tempfile.TemporaryDirectory(prefix="coreswap-hush-") as directory:
         expected = {
             f'nixbadge_coreswap_result={result}': True,
             'CORESWAP-WRITE /coreswap.pending 6': write,
+            'CORESWAP-WRITE /coreswap.pending 4': ack,
             'CORESWAP-REQUEST': request,
             'RESET\n': reset,
             'CORESWAP-SENTINEL-OK': not reset,
@@ -90,6 +91,12 @@ with tempfile.TemporaryDirectory(prefix="coreswap-hush-") as directory:
     check('trailing data', content=b'riscv\nx')
     check('oversized request is bounded', content=b'riscv\n' + b'x' * 1048576)
     check('pending prevents retry', 'setenv sb_pending 1', result='timeout')
+    pending = fixture.with_name('coreswap.pending')
+    previous = 'setenv sb_files "/coreswap.request /coreswap.pending"; setenv sb_pending 1'
+    pending.write_bytes(b'1WSC')
+    check('ordinary ARM reboot after accepted transfer', previous, result='retained')
+    pending.write_bytes(b'1WSCx')
+    check('trailing bytes cannot acknowledge a request', previous, result='timeout')
     check('failed write prevents request', 'setenv sb_write_failure 1',
           result='timeout', write=True)
     check('request refusal prevents reset', 'setenv sb_request_failure 1',
@@ -97,6 +104,7 @@ with tempfile.TemporaryDirectory(prefix="coreswap-hush-") as directory:
     check('valid request resets once', result='timeout', write=True, request=True, reset=True)
     rv = 'setenv core riscv; mw.l 84000000 43535731; mw.l 84000010 84001000; '
     check('confirmed RISC-V entry', rv, result='ok')
+    check('C906 loader acknowledges pending transfer', rv + 'setenv sb_pending 1', result='ok', ack=True)
     check('wrong heartbeat', rv + 'mw.l 84000000 43534531')
     check('wrong entry address', rv + 'mw.l 84000010 84001004')
     check('nonzero entry upper word', rv + 'mw.l 84000014 1')

@@ -26,7 +26,8 @@ static int do_sb_coreswap_write(struct cmd_tbl *cmdtp, int flag, int argc,
 	address = hextoul(argv[3], NULL);
 	data = map_sysmem(address, size);
 	if (!strcmp(argv[4], "/coreswap.pending")) {
-		if (size != 6 || memcmp(data, "riscv\n", 6))
+		if ((size != 6 || memcmp(data, "riscv\n", 6)) &&
+		    (size != 4 || memcmp(data, "1WSC", 4)))
 			return CMD_RET_FAILURE;
 		env_set("sb_pending", "1");
 	} else {

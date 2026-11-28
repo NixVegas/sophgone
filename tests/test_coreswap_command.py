@@ -100,6 +100,7 @@ int main(void) {
  assert(do_coreswap(NULL,0,2,argv)==0 && !strcmp(reported," nixbadge.coreswap=disabled"));
  result="ok"; oldargs="root=/dev/test";
  assert(do_coreswap(NULL,0,2,argv)==0 && !strcmp(reported,"root=/dev/test nixbadge.coreswap=ok"));
+ result="retained"; assert(do_coreswap(NULL,0,2,argv)==0 && !strcmp(reported,"root=/dev/test nixbadge.coreswap=retained"));
  result="unknown"; assert(do_coreswap(NULL,0,2,argv)==1);
  char longargs[256]; memset(longargs,'x',255); longargs[255]=0;
  result="timeout"; oldargs=longargs; assert(do_coreswap(NULL,0,2,argv)==1);

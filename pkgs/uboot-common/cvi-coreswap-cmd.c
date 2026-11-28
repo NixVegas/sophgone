@@ -106,7 +106,8 @@ static int do_coreswap(struct cmd_tbl *cmdtp, int flag, int argc, char * const a
 		return CMD_RET_USAGE;
 	if (!result)
 		result = "disabled";
-	if (strcmp(result, "ok") && strcmp(result, "timeout") && strcmp(result, "disabled"))
+	if (strcmp(result, "ok") && strcmp(result, "timeout") &&
+	    strcmp(result, "retained") && strcmp(result, "disabled"))
 		return CMD_RET_FAILURE;
 	old = env_get("nixbadge_args");
 	length = snprintf(args, sizeof(args), "%s nixbadge.coreswap=%s", old ? old : "", result);
